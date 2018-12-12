@@ -5,7 +5,7 @@ import os
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
-from ppo_pv_mixed import PPO
+from sep_nn_ppo import PPO
 
 
 GAMMA = 0.99
@@ -101,11 +101,11 @@ def simulate_inference():
 
 with tf.Session() as sess:
     ppo = PPO(sess, state_dim, action_dim, action_bound,
-              c1=1, c2=0.001, epsilon=0.2, lr=0.00005, K=10)
+              c1=1, c2=0.001, epsilon=0.2, lr=0.0001, K=10)
 
     saver = tf.train.Saver()
-    if os.path.exists('tmp_pv/checkpoint'):
-        saver.restore(sess, "tmp_pv/model.ckpt")
+    if os.path.exists('tmp_sep_nn/checkpoint'):
+        saver.restore(sess, "tmp_sep_nn/model.ckpt")
     else:
         sess.run(tf.global_variables_initializer())
 
@@ -120,7 +120,7 @@ with tf.Session() as sess:
                 ppo.train(s, a, discounted_r)
 
             if iteration % 100 == 0:
-                saver.save(sess, 'tmp_pv/model.ckpt')
+                saver.save(sess, 'tmp_sep_nn/model.ckpt')
 
             if iteration % 20 == 0:
                 ppo.test(np.array([s[0], s[-1]]))
