@@ -11,16 +11,24 @@ initializer_helper = {
 
 
 class DQN(object):
-    def __init__(self, sess, s_dim, a_dim, batch_size, gamma, lr, epsilon, replace_target_iter):
+    def __init__(self,
+                 sess,
+                 s_dim,  # 状态维度
+                 a_dim,  # one hot行为维度 1,0 1,1 0,1 -1,1 -1,0 -1,-1 0,-1 1,-1
+                 batch_size,
+                 gamma,
+                 lr,  # learning rate
+                 epsilon,  # epsilon-greedy
+                 replace_target_iter):  # 经历C步后更新target参数
         self.sess = sess
-        self.s_dim = s_dim  # 状态维度
-        self.a_dim = a_dim  # one hot行为维度
+        self.s_dim = s_dim
+        self.a_dim = a_dim
         self.gamma = gamma
-        self.lr = lr  # learning rate
-        self.epsilon = epsilon  # epsilon-greedy
-        self.replace_target_iter = replace_target_iter  # 经历C步后更新target参数
+        self.lr = lr
+        self.epsilon = epsilon
+        self.replace_target_iter = replace_target_iter
 
-        self.memory = Memory(batch_size, 10000)
+        self.memory = Memory(batch_size, 3200)
         self._learn_step_counter = 0
         self._generate_model()
 
@@ -62,7 +70,10 @@ class DQN(object):
 
     def _build_net(self, s, scope, trainable):
         with tf.variable_scope(scope):
-            l = tf.layers.dense(s, 20, activation=tf.nn.relu, trainable=trainable, ** initializer_helper)
+            l = tf.layers.dense(s, 32, activation=tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 32, activation=tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 32, activation=tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 32, activation=tf.nn.relu, trainable=trainable, **initializer_helper)
             q_z = tf.layers.dense(l, self.a_dim, trainable=trainable, **initializer_helper)
 
         return q_z, tf.global_variables(scope=scope)

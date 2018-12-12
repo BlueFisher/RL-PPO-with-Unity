@@ -5,15 +5,13 @@ import os
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
-from ppo import PPO
+from ppo_pv_mixed import PPO
 
 
 GAMMA = 0.99
 BATCH_SIZE = 512
 ITER_MAX = 10000
 MAX_STEPS = 500
-
-var = 2.
 
 train_mode = 'run' not in sys.argv
 if train_mode:
@@ -41,7 +39,7 @@ def simulate_training():
     trans_all_agents = [[] for _ in range(len(brain_info.agents))]
     states = brain_info.vector_observations
     while False in dones:
-        actions = ppo.choose_action(states, var)
+        actions = ppo.choose_action(states)
         brain_info = env.step({
             default_brain_name: actions
         })[default_brain_name]
@@ -82,7 +80,7 @@ def simulate_inference():
     dones = [False] * len(brain_info.agents)
     states = brain_info.vector_observations
     while False in dones:
-        actions = ppo.choose_action(states, 0.5)
+        actions = ppo.choose_action(states)
         brain_info = env.step({
             default_brain_name: actions
         })[default_brain_name]
@@ -106,26 +104,26 @@ with tf.Session() as sess:
               c1=1, c2=0.001, epsilon=0.2, lr=0.0001, K=10)
 
     saver = tf.train.Saver()
-    if os.path.exists('tmp/checkpoint'):
-        saver.restore(sess, "tmp/model.ckpt")
+    if os.path.exists('tmp_pv/checkpoint'):
+        saver.restore(sess, "tmp_pv/model.ckpt")
     else:
         sess.run(tf.global_variables_initializer())
 
     for iteration in range(ITER_MAX):
         if train_mode:
             trans_with_discounted_r, rewards_sum, hitted = simulate_training()
-            print(f'iter {iteration}, rewards {rewards_sum:.2f}, hitted {hitted}, var {var:.3f}')
-
-            if hitted > 1:
-                var *= 0.999
+            print(f'iter {iteration}, rewards {rewards_sum:.2f}, hitted {hitted}')
 
             for i in range(0, len(trans_with_discounted_r), BATCH_SIZE):
                 batch = trans_with_discounted_r[i:i + BATCH_SIZE]
                 s, a, discounted_r, *_ = [np.array(e) for e in zip(*batch)]
-                ppo.train(s, a, discounted_r, var)
+                ppo.train(s, a, discounted_r)
 
             if iteration % 100 == 0:
-                saver.save(sess, 'tmp/model.ckpt')
+                saver.save(sess, 'tmp_pv/model.ckpt')
+
+            if iteration % 20 == 0:
+                ppo.test(np.array([s[0], s[-1]]))
         else:
             rewards_sum, hitted = simulate_inference()
             print(f'iter {iteration}, rewards {rewards_sum:.2f}, hitted {hitted}')

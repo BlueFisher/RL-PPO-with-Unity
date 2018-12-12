@@ -17,7 +17,6 @@ class PPO(object):
         self.K = K
 
         self.pl_s = tf.placeholder(tf.float32, shape=(None, s_dim), name='s_t')
-        self.pl_sigma = tf.placeholder(tf.float32, shape=(), name='sigma')
 
         pi, params = self._build_net(self.pl_s, 'policy', True)
         old_pi, old_params = self._build_net(self.pl_s, 'old_policy', False)
@@ -76,7 +75,7 @@ class PPO(object):
                 self.mu = mu
                 self.sigma = sigma
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=self.pl_sigma)
+            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
         params = tf.global_variables(scope)
         return norm_dist, params
@@ -88,30 +87,28 @@ class PPO(object):
             self.pl_s: np.array(s[np.newaxis, :])
         }).squeeze()
 
-    def test(self, s, sigma):
-        mu = self.sess.run(self.mu, {
+    def test(self, s):
+        mu, sigma = self.sess.run([self.mu, self.sigma], {
             self.pl_s: s
         })
         v = self.sess.run(self.v, {
             self.pl_s: s
         })
         a = self.sess.run(self.choose_action_op, {
-            self.pl_s: s,
-            self.pl_sigma: sigma
+            self.pl_s: s
         })
         for i in range(len(mu)):
-            print(mu[i], v[i], a[i])
+            print(mu[i], sigma[i], v[i], a[i])
 
-    def choose_action(self, s, sigma):
+    def choose_action(self, s):
         assert len(s.shape) == 2
 
         a = self.sess.run(self.choose_action_op, {
-            self.pl_s: s,
-            self.pl_sigma: sigma
+            self.pl_s: s
         })
         return np.clip(a, -self.a_bound, self.a_bound)
 
-    def train(self, s, a, discounted_r, sigma):
+    def train(self, s, a, discounted_r):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
         assert len(discounted_r.shape) == 2
@@ -124,8 +121,7 @@ class PPO(object):
             self.sess.run(self.train_op, {
                 self.pl_s: s,
                 self.pl_a: a,
-                self.pl_discounted_r: discounted_r,
-                self.pl_sigma: sigma
+                self.pl_discounted_r: discounted_r
             })
             self.sess.run(self.train_v_op, {
                 self.pl_s: s,

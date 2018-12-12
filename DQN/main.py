@@ -1,7 +1,31 @@
-import gym
 import numpy as np
 import tensorflow as tf
-from dqn import *
+import sys
+import os
+
+sys.path.append('..')
+from mlagents.envs import UnityEnvironment
+from dqn import DQN
+
+
+
+train_mode = 'run' not in sys.argv
+if train_mode:
+    print('Training Mode')
+else:
+    print('Inference Mode')
+
+env = UnityEnvironment()
+
+default_brain_name = env.brain_names[0]
+
+brain_params = env.brains[default_brain_name]
+state_dim = brain_params.vector_observation_space_size
+action_dim = brain_params.vector_action_space_size[0]
+action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
+
+
+
 
 if __name__ == '__main__':
     env = gym.make('CartPole-v0')
