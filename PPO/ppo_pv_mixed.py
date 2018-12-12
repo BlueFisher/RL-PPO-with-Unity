@@ -29,7 +29,7 @@ class PPO(object):
         ratio = pi.prob(self.pl_a) / old_pi.prob(self.pl_a)
 
         L_clip = tf.math.reduce_mean(tf.math.minimum(
-            ratio * advantage,  # 替代的目标函数 surrogate objective
+            ratio * advantage,  # surrogate objective
             tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
         ))
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v))
@@ -50,8 +50,8 @@ class PPO(object):
             mu = tf.layers.dense(prob_l, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(prob_l, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
 
-            # 状态价值函数 v 与策略 π 共享同一套神经网络参数
             v_l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            v_l = tf.layers.dense(v_l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             v = tf.layers.dense(v_l, 1, trainable=trainable, **initializer_helper)
 
             mu, sigma = mu * self.a_bound, sigma
@@ -62,7 +62,7 @@ class PPO(object):
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
         params = tf.global_variables(scope)
-        return norm_dist, params
+        return norm_dist, v, params
 
     def get_v(self, s):
         assert len(s.shape) == 1
@@ -72,7 +72,7 @@ class PPO(object):
         }).squeeze()
 
     def test(self, s):
-        mu,sigma = self.sess.run([self.mu,self.sigma], {
+        mu, sigma = self.sess.run([self.mu, self.sigma], {
             self.pl_s: s
         })
         v = self.sess.run(self.v, {
@@ -82,7 +82,7 @@ class PPO(object):
             self.pl_s: s
         })
         for i in range(len(mu)):
-            print(mu[i],sigma[i], v[i], a[i])
+            print(mu[i], sigma[i], v[i], a[i])
 
     def choose_action(self, s):
         assert len(s.shape) == 2
@@ -104,9 +104,5 @@ class PPO(object):
             self.sess.run(self.train_op, {
                 self.pl_s: s,
                 self.pl_a: a,
-                self.pl_discounted_r: discounted_r
-            })
-            self.sess.run(self.train_v_op, {
-                self.pl_s: s,
                 self.pl_discounted_r: discounted_r
             })

@@ -101,7 +101,7 @@ def simulate_inference():
 
 with tf.Session() as sess:
     ppo = PPO(sess, state_dim, action_dim, action_bound,
-              c1=1, c2=0.001, epsilon=0.2, lr=0.0001, K=10)
+              c1=1, c2=0.001, epsilon=0.2, lr=0.00005, K=10)
 
     saver = tf.train.Saver()
     if os.path.exists('tmp_pv/checkpoint'):

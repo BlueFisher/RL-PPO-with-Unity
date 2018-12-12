@@ -14,7 +14,7 @@ class DQN(object):
     def __init__(self,
                  sess,
                  s_dim,  # 状态维度
-                 a_dim,  # one hot行为维度 1,0 1,1 0,1 -1,1 -1,0 -1,-1 0,-1 1,-1
+                 a_dim,  # one hot行为维度
                  batch_size,
                  gamma,
                  lr,  # learning rate
@@ -37,7 +37,7 @@ class DQN(object):
             return np.random.randint(self.a_dim)
         else:
             q_eval_z = self.sess.run(self.q_eval_z, feed_dict={
-                self.s: s[np.newaxis, :]
+                self.pl_s: s[np.newaxis, :]
             })
             return q_eval_z.squeeze().argmax()
 
@@ -48,19 +48,19 @@ class DQN(object):
         self.pl_s_ = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='s_')
         self.pl_done = tf.placeholder(tf.float32, shape=(None, 1), name='done')
 
-        self.q_eval_z, param_eval = self._build_net(self.s, 'eval_net', True)
-        self.q_target_z, param_target = self._build_net(self.s_, 'target_net', False)
+        self.q_eval_z, param_eval = self._build_net(self.pl_s, 'eval_net', True)
+        self.q_target_z, param_target = self._build_net(self.pl_s_, 'target_net', False)
 
         # argmax(Q)
         max_a = tf.argmax(self.q_eval_z, axis=1)
         one_hot_max_a = tf.one_hot(max_a, self.a_dim)
 
         # y = R + gamma * Q_(S, argmax(Q))
-        q_target = self.r + self.gamma \
-            * tf.reduce_sum(one_hot_max_a * self.q_target_z, axis=1, keepdims=True) * (1 - self.done)
+        q_target = self.pl_r + self.gamma \
+            * tf.reduce_sum(one_hot_max_a * self.q_target_z, axis=1, keepdims=True) * (1 - self.pl_done)
         q_target = tf.stop_gradient(q_target)
 
-        q_eval = tf.reduce_sum(self.a * self.q_eval_z, axis=1, keepdims=True)
+        q_eval = tf.reduce_sum(self.pl_a * self.q_eval_z, axis=1, keepdims=True)
 
         self.loss = tf.reduce_mean(tf.squared_difference(q_target, q_eval))
         self.optimizer = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
@@ -78,15 +78,21 @@ class DQN(object):
 
         return q_z, tf.global_variables(scope=scope)
 
-    def store_transition_and_learn(self, s, a, r, s_, done):
+    def store_transition_and_learn(self, s, a_i, r, s_, done):
+        assert len(s.shape) == 2
+        assert type(a_i) == int
+        assert len(r.shape) == 1
+        assert len(s_.shape) == 2
+        assert len(done.shape) == 1
+
         if self._learn_step_counter % self.replace_target_iter == 0:
             self.sess.run(self.target_replace_ops)
 
         # 将行为转换为one hot形式
         one_hot_action = np.zeros(self.a_dim)
-        one_hot_action[a] = 1
+        one_hot_action[a_i] = 1
 
-        self.memory.store_transition(s, one_hot_action, [r], s_, [done])
+        self.memory.store_transition(s, one_hot_action, r, s_, done)
         self._learn()
         self._learn_step_counter += 1
 
@@ -94,9 +100,9 @@ class DQN(object):
         s, a, r, s_, done = self.memory.get_mini_batches()
 
         loss, _ = self.sess.run([self.loss, self.optimizer], feed_dict={
-            self.s: s,
-            self.a: a,
-            self.r: r,
-            self.s_: s_,
-            self.done: done
+            self.pl_s: s,
+            self.pl_a: a,
+            self.pl_r: r,
+            self.pl_s_: s_,
+            self.pl_done: done
         })
