@@ -17,7 +17,6 @@ class Memory(object):
         assert len(a.shape) == 1
         self._transition_store.append((s, a, r, s_, done))
         if len(self._transition_store) == self.max_size and not self.isFull:
-            print('full')
             self.isFull = True
 
     def get_mini_batches(self):

@@ -35,8 +35,6 @@ with tf.Session() as sess:
     actor.generate_gradients(critic.get_gradients())
 
     saver = tf.train.Saver()
-    # tf.train.write_graph(sess.graph_def, 'tmp',
-    #                      'raw_graph_def.pb', as_text=False)
 
     if os.path.exists('tmp/checkpoint'):
         saver.restore(sess, "tmp/model.ckpt")
