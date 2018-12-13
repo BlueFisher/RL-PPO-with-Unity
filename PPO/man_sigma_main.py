@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow as tf
 import sys
-import os
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
+from util.saver import Saver
 from man_sigma_ppo import PPO
 
 
@@ -102,14 +102,17 @@ def simulate_inference():
 
 
 with tf.Session() as sess:
-    ppo = PPO(sess, state_dim, action_dim, action_bound,
-              c1=1, c2=0.001, epsilon=0.2, lr=0.0001, K=10)
+    ppo = PPO(sess,
+              state_dim,
+              action_dim,
+              action_bound,
+              c2=0.001,
+              epsilon=0.2,
+              lr=0.00005,
+              K=10)
 
-    saver = tf.train.Saver()
-    if os.path.exists('tmp_man_sigma/checkpoint'):
-        saver.restore(sess, "tmp_man_sigma/model.ckpt")
-    else:
-        sess.run(tf.global_variables_initializer())
+    saver = Saver('model_man_sigma')
+    saver.restore_or_init()
 
     for iteration in range(ITER_MAX):
         if train_mode:

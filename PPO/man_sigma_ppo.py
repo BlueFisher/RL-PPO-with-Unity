@@ -8,32 +8,40 @@ initializer_helper = {
 
 
 class PPO(object):
-    def __init__(self, sess, s_dim, a_dim, a_bound, c1, c2, epsilon, lr, K):
+    def __init__(self,
+                 sess,
+                 state_dim,
+                 action_dim,
+                 action_bound,
+                 c2,  # entropy coefficient
+                 epsilon,  # clip epsilon
+                 lr,
+                 K):  # train K epochs
         self.sess = sess
 
-        self.s_dim = s_dim
-        self.a_dim = a_dim
-        self.a_bound = a_bound
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.a_bound = action_bound
         self.K = K
 
-        self.pl_s = tf.placeholder(tf.float32, shape=(None, s_dim), name='s_t')
+        self.pl_s = tf.placeholder(tf.float32, shape=(None, state_dim), name='s_t')
         self.pl_sigma = tf.placeholder(tf.float32, shape=(), name='sigma')
 
         pi, params = self._build_net(self.pl_s, 'policy', True)
         old_pi, old_params = self._build_net(self.pl_s, 'old_policy', False)
 
-        self.v, v_params = self._build_net_c(self.pl_s, 'value', True)
-        old_v, old_v_params = self._build_net_c(self.pl_s, 'old_value', False)
+        self.v, v_params = self._build_critic_net(self.pl_s, 'value', True)
+        old_v, old_v_params = self._build_critic_net(self.pl_s, 'old_value', False)
 
         self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_r')
 
         advantage = self.pl_discounted_r - old_v
 
-        self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='a_t')
+        self.pl_a = tf.placeholder(tf.float32, shape=(None, action_dim), name='a_t')
         ratio = pi.prob(self.pl_a) / old_pi.prob(self.pl_a)
 
         L_clip = tf.math.reduce_mean(tf.math.minimum(
-            ratio * advantage,  # 替代的目标函数 surrogate objective
+            ratio * advantage,  # surrogate objective
             tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
         ))
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v))
@@ -46,7 +54,7 @@ class PPO(object):
         self.update_params_op = [tf.assign(r, v) for r, v in zip(old_params, params)]
         self.update_v_params_op = [tf.assign(r, v) for r, v in zip(old_v_params, v_params)]
 
-    def _build_net_c(self, inputs, scope, trainable):
+    def _build_critic_net(self, inputs, scope, trainable):
         with tf.variable_scope(scope):
             l = tf.layers.dense(inputs, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -54,8 +62,9 @@ class PPO(object):
             l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             v = tf.layers.dense(l, 1, trainable=trainable)
 
-            params = tf.global_variables(scope)
-            return v, params
+            params = tf.get_variable_scope().global_variables()
+
+        return v, params
 
     def _build_net(self, inputs, scope, trainable):
         with tf.variable_scope(scope):
@@ -67,10 +76,6 @@ class PPO(object):
             mu = tf.layers.dense(prob_l, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(prob_l, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
 
-            # 状态价值函数 v 与策略 π 共享同一套神经网络参数
-            # v_l = tf.layers.dense(l, 10, tf.nn.relu, trainable=trainable, **initializer_helper)
-            # v = tf.layers.dense(v_l, 1, trainable=trainable, **initializer_helper)
-
             mu, sigma = mu * self.a_bound, sigma
             if trainable:
                 self.mu = mu
@@ -78,7 +83,8 @@ class PPO(object):
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=self.pl_sigma)
 
-        params = tf.global_variables(scope)
+            params = tf.get_variable_scope().global_variables()
+
         return norm_dist, params
 
     def get_v(self, s):

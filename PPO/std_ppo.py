@@ -8,15 +8,24 @@ initializer_helper = {
 
 
 class PPO(object):
-    def __init__(self, sess, s_dim, a_dim, a_bound, c1, c2, epsilon, lr, K):
+    def __init__(self,
+                 sess,
+                 state_dim,
+                 action_dim,
+                 action_bound,
+                 c1,  # value loss coefficient
+                 c2,  # entropy coefficient
+                 epsilon,  # clip epsilon
+                 lr,
+                 K):  # train K epochs
         self.sess = sess
 
-        self.s_dim = s_dim
-        self.a_dim = a_dim
-        self.a_bound = a_bound
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.a_bound = action_bound
         self.K = K
 
-        self.pl_s = tf.placeholder(tf.float32, shape=(None, s_dim), name='s_t')
+        self.pl_s = tf.placeholder(tf.float32, shape=(None, state_dim), name='s_t')
 
         pi, self.v, params = self._build_net(self.pl_s, 'policy', True)
         old_pi, old_v, old_params = self._build_net(self.pl_s, 'old_policy', False)
@@ -25,7 +34,7 @@ class PPO(object):
 
         advantage = self.pl_discounted_r - old_v
 
-        self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='a_t')
+        self.pl_a = tf.placeholder(tf.float32, shape=(None, action_dim), name='a_t')
         ratio = pi.prob(self.pl_a) / old_pi.prob(self.pl_a)
 
         L_clip = tf.math.reduce_mean(tf.math.minimum(
@@ -61,7 +70,8 @@ class PPO(object):
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
-        params = tf.global_variables(scope)
+            params = tf.get_variable_scope().global_variables()
+            
         return norm_dist, v, params
 
     def get_v(self, s):

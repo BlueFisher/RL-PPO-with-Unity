@@ -1,7 +1,8 @@
 import gym
 import numpy as np
 import tensorflow as tf
-from memory import Memory
+sys.path.append('..')
+from util.memory import Memory
 
 
 initializer_helper = {
@@ -74,7 +75,7 @@ class DQN(object):
         self.optimizer = tf.train.AdamOptimizer(self.lr).minimize(self.loss)
 
         # replace target network params with eval network params
-        self.target_replace_ops = [tf.assign(t, e) for t, e in zip(param_target, param_eval)]
+        self.target_replace_op = [tf.assign(t, e) for t, e in zip(param_target, param_eval)]
 
     def _build_net(self, s, scope, trainable):
         with tf.variable_scope(scope):
@@ -98,7 +99,7 @@ class DQN(object):
         assert type(done) == list
 
         if self._learn_step_counter % self.replace_target_iter == 0:
-            self.sess.run(self.target_replace_ops)
+            self.sess.run(self.target_replace_op)
 
         # turn action to one hot form
         one_hot_action = np.zeros(self.a_dim)

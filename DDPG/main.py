@@ -1,12 +1,18 @@
 import numpy as np
 import tensorflow as tf
 import sys
-import os
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
+from util.memory import Memory
+from util.saver import Saver
 from ddpg import Actor, Critic
-from memory import *
+
+
+BATCH_SIZE = 64
+MEMORY_MAX_SIZE = 3200
+ITER_MAX = 10000
+MAX_STEPS = 500
 
 train_mode = 'run' not in sys.argv
 if train_mode:
@@ -23,86 +29,70 @@ state_dim = brain_params.vector_observation_space_size
 action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
-var = 1.
-MAX_STEPS = 5000
 
-tf.reset_default_graph()
+var = 3.
+
 with tf.Session() as sess:
-    memory = Memory(64, 6400)
-    actor = Actor(sess, state_dim, action_dim, action_bound, lr=0.0001, tau=0.01)
-    critic = Critic(sess, state_dim, actor.s, actor.s_, actor.a, actor.a_, gamma=0.9, lr=0.0001, tau=0.01)
+    memory = Memory(BATCH_SIZE, MEMORY_MAX_SIZE)
+    actor = Actor(sess,
+                  state_dim,
+                  action_dim,
+                  action_bound,
+                  lr=0.0001,
+                  tau=0.01)
+    critic = Critic(sess,
+                    actor.pl_s,
+                    actor.pl_s_,
+                    actor.a,
+                    actor.a_,
+                    gamma=0.99,
+                    lr=0.0001,
+                    tau=0.01)
 
     actor.generate_gradients(critic.get_gradients())
 
-    saver = tf.train.Saver()
+    saver = Saver('model', sess)
+    saver.restore_or_init()
 
-    if os.path.exists('tmp/checkpoint'):
-        saver.restore(sess, "tmp/model.ckpt")
-    else:
-        sess.run(tf.global_variables_initializer())
-
-    for episode in range(10000):
+    for episode in range(ITER_MAX):
+        rewards_sum = 0
         done = False
+        steps_n = 0
+        brain_info = env.reset(train_mode=train_mode)[default_brain_name]
+        state = brain_info.vector_observations[0]
 
-        if train_mode:
-            brain_info = env.reset(train_mode=train_mode)[default_brain_name]
-            s = brain_info.vector_observations[0]
-            steps_n = 0
-            rewards_n = 0
-            hitted = 0
+        while not done and steps_n < MAX_STEPS:
+            if train_mode:
+                action = actor.choose_action(state, var)
+            else:
+                action = actor.choose_action(state)
 
-            while not done and steps_n < MAX_STEPS:
-                a = actor.choose_action(s)
-                # a (action_dim, )
-                a = np.clip(np.random.normal(a, var), -action_bound, action_bound)  # 异策略探索
-                brain_info = env.step({
-                    default_brain_name: a[np.newaxis, :],
-                })[default_brain_name]
-                s_ = brain_info.vector_observations[0]
-                r = brain_info.rewards[0]
+            brain_info = env.step({
+                default_brain_name: action[np.newaxis, :],
+            })[default_brain_name]
+            state_ = brain_info.vector_observations[0]
+            reward = brain_info.rewards[0]
 
-                rewards_n += r
-                done = brain_info.local_done[0]
-                steps_n += 1
-                if r > 0:
-                    hitted += 1
+            rewards_sum += reward
+            done = brain_info.local_done[0]
+            steps_n += 1
 
-                memory.store_transition(s, a, [r], s_, [done])
-
+            if train_mode:
+                memory.store_transition(state, action, [reward], state_, [done])
                 if memory.isFull:
                     b_s, b_a, b_r, b_s_, b_done = memory.get_mini_batches()
                     critic.learn(b_s, b_a, b_r, b_s_, b_done)
                     actor.learn(b_s)
 
-                # if episode % 500 == 0 and memory.isFull:
-                #     memory.clear()
-                #     print('memory cleared')
+            state = state_
 
-                s = s_
-
-            print('episode {}\trewards {:.2f}\tsteps {:<2}\thitted {}\tvar {:.2f}'
-                  .format(episode, rewards_n, steps_n, hitted, var))
-
-            if memory.isFull and hitted >= 1:
-                var *= 0.999
-            if episode % 100 == 0:
-                saver.save(sess, 'tmp/model.ckpt')
+        if train_mode:
+            print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}, var {var:.3f}')
         else:
-            steps_n = 1
-            brain_info = env.reset(train_mode=train_mode)[default_brain_name]
-            s = brain_info.vector_observations[0]
-            while not done and steps_n < MAX_STEPS:
-                a = actor.choose_action(s)
-                brain_info = env.step({
-                    default_brain_name: a[np.newaxis, :],
-                })[default_brain_name]
-                s = brain_info.vector_observations[0]
-                r = brain_info.rewards[0]
-                done = brain_info.local_done[0]
+            print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}')
 
-                steps_n += 1
-
-            if r < 0:
-                print('failed')
-            if steps_n == 500:
-                print('timeout')
+        if train_mode:
+            if memory.isFull and reward > 0:
+                var *= 0.999
+            if episode % 500 == 0:
+                saver.save(episode)

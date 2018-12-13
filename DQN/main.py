@@ -60,7 +60,6 @@ with tf.Session() as sess:
         done = False
         steps_n = 0
         brain_info = env.reset(train_mode=train_mode)[default_brain_name]
-
         state = brain_info.vector_observations[0]
         while not done and steps_n < MAX_STEPS:
             action_i = dqn.choose_action(state, train_mode)
@@ -80,7 +79,7 @@ with tf.Session() as sess:
             rewards_sum += reward
             state = state_
 
-        print(f'episode {episode}, rewards {rewards_sum: .2f}, steps {steps_n}, hitted {reward > 0}')
+        print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}')
 
         if train_mode and episode % 20 == 0:
             dqn.test([state])

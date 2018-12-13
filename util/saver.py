@@ -26,7 +26,7 @@ class Saver(object):
                     paths = ', '.join(ckpt.all_model_checkpoint_paths)
                     raise Exception(f'No checkpoint step [{self.last_step+step}], available paths are [{paths}]')
 
-    def save_model(self, model_name=None):
+    def save_graph(self, model_name=None):
         if model_name is None:
             model_name = 'raw_graph_def.pb'
         tf.train.write_graph(sess.graph_def, self.model_path, model_name, as_text=False)
