@@ -59,7 +59,7 @@ class Actor(object):
 
         return a, params
 
-    def choose_action(self, s, var=None):
+    def choose_action(self, s, variance=None):
         assert len(s.shape) == 1
         a = self.sess.run(self.a, {
             self.pl_s: s[np.newaxis, :]
@@ -68,8 +68,8 @@ class Actor(object):
         assert len(a.shape) == 2
 
         action = a[0]
-        if var is not None:
-            action = np.clip(np.random.normal(action, var), -self.a_bound, self.a_bound)  # exploration
+        if variance is not None:
+            action = np.clip(np.random.normal(action, variance), -self.a_bound, self.a_bound)  # exploration
 
         return action
 

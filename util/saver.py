@@ -8,14 +8,15 @@ class Saver(object):
         self.saver = tf.train.Saver(max_to_keep=10)
         self.last_step = 0
 
-    def restore_or_init(self, step=None):
+    def restore_or_init(self, step=None, train_mode=True):
         ckpt = tf.train.get_checkpoint_state(self.model_path)
         if ckpt is None:
             self.sess.run(tf.global_variables_initializer())
         else:
             if step is None:
                 self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-                self.last_step = int(ckpt.model_checkpoint_path.split('-')[1].split('.')[0])
+                if train_mode:
+                    self.last_step = int(ckpt.model_checkpoint_path.split('-')[1].split('.')[0])
             else:
                 for c in ckpt.all_model_checkpoint_paths:
                     if f'model-{self.last_step+step}' in c:
@@ -32,6 +33,7 @@ class Saver(object):
         tf.train.write_graph(sess.graph_def, self.model_path, model_name, as_text=False)
 
     def save(self, step=None):
+        assert type(step) == int
         if step is None:
             self.saver.save(self.sess, f'{self.model_path}/model.ckpt')
         else:

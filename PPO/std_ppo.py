@@ -43,7 +43,7 @@ class PPO(object):
         ))
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v))
         S = tf.reduce_mean(pi.entropy())
-        L = L_clip - c1 * L_vf + c2 * S
+        L = L_clip - c1 * L_vf + c2 * S 
 
         self.choose_action_op = tf.squeeze(pi.sample(1), axis=0)
         self.train_op = tf.train.AdamOptimizer(lr).minimize(-L)

@@ -30,7 +30,7 @@ action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 
-var = 3.
+variance = 3.
 
 with tf.Session() as sess:
     memory = Memory(BATCH_SIZE, MEMORY_MAX_SIZE)
@@ -63,7 +63,7 @@ with tf.Session() as sess:
 
         while not done and steps_n < MAX_STEPS:
             if train_mode:
-                action = actor.choose_action(state, var)
+                action = actor.choose_action(state, variance)
             else:
                 action = actor.choose_action(state)
 
@@ -87,12 +87,12 @@ with tf.Session() as sess:
             state = state_
 
         if train_mode:
-            print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}, var {var:.3f}')
+            print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}, variance {variance:.3f}')
         else:
             print(f'episode {episode}, rewards {rewards_sum:.2f}, steps {steps_n}, hitted {reward > 0}')
 
         if train_mode:
             if memory.isFull and reward > 0:
-                var *= 0.999
+                variance *= 0.999
             if episode % 500 == 0:
                 saver.save(episode)
