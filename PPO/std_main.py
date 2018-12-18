@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import sys
+import time
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
@@ -32,6 +33,7 @@ action_bound = np.array([float(i) for i in brain_params.vector_action_descriptio
 
 def simulate():
     hitted_sum = 0
+    steps_n = 0
     brain_info = env.reset(train_mode=train_mode)[default_brain_name]
 
     dones = [False] * len(brain_info.agents)
@@ -39,7 +41,7 @@ def simulate():
     trans_all = [[] for _ in range(len(brain_info.agents))]
     rewards_sum = [0] * len(brain_info.agents)
     states = brain_info.vector_observations
-    while False in dones:
+    while False in dones and steps_n < MAX_STEPS:
         actions = ppo.choose_action(states)
         brain_info = env.step({
             default_brain_name: actions
@@ -52,11 +54,14 @@ def simulate():
             if train_mode:
                 last_states_[i] = states_[i]
                 trans_all[i].append([states[i], actions[i], np.array([rewards[i]]), local_dones[i]])
-            rewards_sum[i] += rewards[i]
+            
+            if not dones[i]:
+                rewards_sum[i] += rewards[i]
             if rewards[i] > 0:
                 hitted_sum += 1
 
             dones[i] = dones[i] or local_dones[i]
+        steps_n += 1
         states = states_
 
     if train_mode:
@@ -90,7 +95,12 @@ with tf.Session() as sess:
 
     saver = Saver('model_std', sess)
     last_iteration = saver.restore_or_init(train_mode=train_mode)
-    summary_writer = tf.summary.FileWriter('log_std/train', sess.graph)
+
+    if train_mode:
+        time_str = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
+        summary_writer = tf.summary.FileWriter(f'log/std', sess.graph)
+        summary_writer.close()
+        summary_writer = tf.summary.FileWriter(f'log/std/{time_str}')
 
     for iteration in range(last_iteration, last_iteration + ITER_MAX + 1):
         trans_with_discounted_r, rewards_sum, hitted = simulate()

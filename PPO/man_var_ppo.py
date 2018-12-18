@@ -139,17 +139,12 @@ class PPO(object):
         assert len(a.shape) == 2
         assert len(discounted_r.shape) == 2
 
-        self.sess.run(self.update_params_op)
-        self.sess.run(self.update_v_params_op)
+        self.sess.run([self.update_params_op, self.update_v_params_op])
 
         # K epochs
         for i in range(self.K):
-            self.sess.run(self.train_op, {
+            self.sess.run([self.train_op, self.train_v_op], {
                 self.pl_s: s,
                 self.pl_a: a,
-                self.pl_discounted_r: discounted_r
-            })
-            self.sess.run(self.train_v_op, {
-                self.pl_s: s,
                 self.pl_discounted_r: discounted_r
             })

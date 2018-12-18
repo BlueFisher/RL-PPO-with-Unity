@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import sys
+import time
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
@@ -98,7 +99,12 @@ with tf.Session() as sess:
 
     saver = Saver('model_man_var', sess)
     last_iteration = saver.restore_or_init(train_mode=train_mode)
-    summary_writer = tf.summary.FileWriter('log_man_var/train', sess.graph)
+
+    if train_mode:
+        time_str = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
+        summary_writer = tf.summary.FileWriter(f'log/man_var', sess.graph)
+        summary_writer.close()
+        summary_writer = tf.summary.FileWriter(f'log/man_var/{time_str}')
 
     for iteration in range(last_iteration, last_iteration + ITER_MAX + 1):
         trans_with_discounted_r, rewards_sum, hitted = simulate()
