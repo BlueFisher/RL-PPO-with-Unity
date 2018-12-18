@@ -13,7 +13,6 @@ class PPO(object):
                  state_dim,
                  action_dim,
                  action_bound,
-                 c2,  # entropy coefficient
                  epsilon,  # clip epsilon
                  lr,
                  K):  # train K epochs
@@ -25,7 +24,10 @@ class PPO(object):
         self.K = K
 
         self.pl_s = tf.placeholder(tf.float32, shape=(None, state_dim), name='s_t')
-        self.pl_sigma = tf.placeholder(tf.float32, shape=(), name='sigma')
+        # constant variance
+        self.sigma = tf.get_variable('sigma', shape=(),
+                                     initializer=tf.initializers.constant(3.),
+                                     trainable=False)
 
         pi, params = self._build_net(self.pl_s, 'policy', True)
         old_pi, old_params = self._build_net(self.pl_s, 'old_policy', False)
@@ -45,8 +47,13 @@ class PPO(object):
             tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
         ))
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v))
-        S = tf.reduce_mean(pi.entropy())
-        L = L_clip + c2 * S
+        L = L_clip
+
+        tf.summary.scalar('loss/-clipped_objective', L_clip)
+        tf.summary.scalar('loss/value_function', L_vf)
+        tf.summary.scalar('loss/-mixed_objective', L)
+        tf.summary.scalar('variance', self.sigma)
+        self.summaries = tf.summary.merge_all()
 
         self.choose_action_op = tf.squeeze(pi.sample(1), axis=0)
         self.train_op = tf.train.AdamOptimizer(lr).minimize(-L)
@@ -74,14 +81,12 @@ class PPO(object):
 
             prob_l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             mu = tf.layers.dense(prob_l, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(prob_l, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, sigma
+            mu = mu * self.a_bound
             if trainable:
                 self.mu = mu
-                self.sigma = sigma
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=self.pl_sigma)
+            norm_dist = tf.distributions.Normal(loc=mu, scale=self.sigma)
 
             params = tf.get_variable_scope().global_variables()
 
@@ -94,30 +99,42 @@ class PPO(object):
             self.pl_s: np.array(s[np.newaxis, :])
         }).squeeze()
 
-    def test(self, s, sigma):
-        mu = self.sess.run(self.mu, {
-            self.pl_s: s
+    def print_test(self, s):
+        np.random.shuffle(s)
+        mu, a = self.sess.run([self.mu, self.choose_action_op], {
+            self.pl_s: s[:4]
         })
-        v = self.sess.run(self.v, {
-            self.pl_s: s
-        })
-        a = self.sess.run(self.choose_action_op, {
-            self.pl_s: s,
-            self.pl_sigma: sigma
-        })
-        for i in range(len(mu)):
-            print(mu[i], v[i], a[i])
 
-    def choose_action(self, s, sigma):
+        for i in range(len(mu)):
+            print(mu[i], a[i])
+
+    def choose_action(self, s, sigma=None):
         assert len(s.shape) == 2
 
-        a = self.sess.run(self.choose_action_op, {
-            self.pl_s: s,
-            self.pl_sigma: sigma
-        })
+        if sigma is None:
+            a = self.sess.run(self.choose_action_op, {
+                self.pl_s: s
+            })
+        else:
+            a = self.sess.run(self.choose_action_op, {
+                self.pl_s: s,
+                self.sigma: sigma
+            })
         return np.clip(a, -self.a_bound, self.a_bound)
 
-    def train(self, s, a, discounted_r, sigma):
+    def get_summaries(self, s, a, discounted_r):
+        summaries = self.sess.run(self.summaries, {
+            self.pl_s: s,
+            self.pl_a: a,
+            self.pl_discounted_r: discounted_r
+        })
+
+        return summaries
+
+    def decrease_sigma(self):
+        self.sess.run(self.sigma.assign(self.sigma * 0.999))
+
+    def train(self, s, a, discounted_r):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
         assert len(discounted_r.shape) == 2
@@ -130,8 +147,7 @@ class PPO(object):
             self.sess.run(self.train_op, {
                 self.pl_s: s,
                 self.pl_a: a,
-                self.pl_discounted_r: discounted_r,
-                self.pl_sigma: sigma
+                self.pl_discounted_r: discounted_r
             })
             self.sess.run(self.train_v_op, {
                 self.pl_s: s,

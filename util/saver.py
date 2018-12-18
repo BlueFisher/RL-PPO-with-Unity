@@ -6,26 +6,26 @@ class Saver(object):
         self.model_path = model_path
         self.sess = sess
         self.saver = tf.train.Saver(max_to_keep=10)
-        self.last_step = 0
 
     def restore_or_init(self, step=None, train_mode=True):
+        last_step = 0
         ckpt = tf.train.get_checkpoint_state(self.model_path)
         if ckpt is None:
             self.sess.run(tf.global_variables_initializer())
         else:
             if step is None:
                 self.saver.restore(self.sess, ckpt.model_checkpoint_path)
-                if train_mode:
-                    self.last_step = int(ckpt.model_checkpoint_path.split('-')[1].split('.')[0])
+                last_step = int(ckpt.model_checkpoint_path.split('-')[1].split('.')[0])
             else:
                 for c in ckpt.all_model_checkpoint_paths:
-                    if f'model-{self.last_step+step}' in c:
+                    if f'model-{step}' in c:
                         self.saver.restore(self.sess, c)
-                        self.last_step = step
+                        last_step = step
                         break
                 else:
                     paths = ', '.join(ckpt.all_model_checkpoint_paths)
-                    raise Exception(f'No checkpoint step [{self.last_step+step}], available paths are [{paths}]')
+                    raise Exception(f'No checkpoint step [{step}], available paths are [{paths}]')
+        return last_step
 
     def save_graph(self, model_name=None):
         if model_name is None:
@@ -37,4 +37,4 @@ class Saver(object):
         if step is None:
             self.saver.save(self.sess, f'{self.model_path}/model.ckpt')
         else:
-            self.saver.save(self.sess, f'{self.model_path}/model-{self.last_step+step}.ckpt')
+            self.saver.save(self.sess, f'{self.model_path}/model-{step}.ckpt')

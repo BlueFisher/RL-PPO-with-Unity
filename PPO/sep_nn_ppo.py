@@ -47,6 +47,12 @@ class PPO(object):
         S = tf.reduce_mean(pi.entropy())
         L = L_clip + c2 * S
 
+        tf.summary.scalar('loss/-clipped_objective', L_clip)
+        tf.summary.scalar('loss/value_function', L_vf)
+        tf.summary.scalar('loss/-entropy', S)
+        tf.summary.scalar('loss/-mixed_objective', L)
+        self.summaries = tf.summary.merge_all()
+
         self.choose_action_op = tf.squeeze(pi.sample(1), axis=0)
         self.train_op = tf.train.AdamOptimizer(lr).minimize(-L)
         self.train_v_op = tf.train.AdamOptimizer(lr).minimize(L_vf)
@@ -62,7 +68,7 @@ class PPO(object):
             v = tf.layers.dense(l, 1, trainable=trainable)
 
             params = tf.get_variable_scope().global_variables()
-        
+
         return v, params
 
     def _build_net(self, inputs, scope, trainable):
@@ -83,7 +89,7 @@ class PPO(object):
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
             params = tf.get_variable_scope().global_variables()
-            
+
         return norm_dist, params
 
     def get_v(self, s):
@@ -93,18 +99,14 @@ class PPO(object):
             self.pl_s: np.array(s[np.newaxis, :])
         }).squeeze()
 
-    def test(self, s):
-        mu, sigma = self.sess.run([self.mu, self.sigma], {
-            self.pl_s: s
+    def print_test(self, s):
+        np.random.shuffle(s)
+        mu, sigma, a = self.sess.run([self.mu, self.sigma, self.choose_action_op], {
+            self.pl_s: s[:4]
         })
-        v = self.sess.run(self.v, {
-            self.pl_s: s
-        })
-        a = self.sess.run(self.choose_action_op, {
-            self.pl_s: s
-        })
+
         for i in range(len(mu)):
-            print(mu[i], sigma[i], v[i], a[i])
+            print(mu[i], sigma[i], a[i])
 
     def choose_action(self, s):
         assert len(s.shape) == 2
@@ -113,6 +115,15 @@ class PPO(object):
             self.pl_s: s
         })
         return np.clip(a, -self.a_bound, self.a_bound)
+
+    def get_summaries(self, s, a, discounted_r):
+        summaries = self.sess.run(self.summaries, {
+            self.pl_s: s,
+            self.pl_a: a,
+            self.pl_discounted_r: discounted_r
+        })
+
+        return summaries
 
     def train(self, s, a, discounted_r):
         assert len(s.shape) == 2
