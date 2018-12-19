@@ -7,7 +7,7 @@ class Saver(object):
         self.sess = sess
         self.saver = tf.train.Saver(max_to_keep=10)
 
-    def restore_or_init(self, step=None, train_mode=True):
+    def restore_or_init(self, step=None):
         last_step = 0
         ckpt = tf.train.get_checkpoint_state(self.model_path)
         if ckpt is None:

@@ -93,7 +93,7 @@ with tf.Session() as sess:
               K=10)
 
     saver = Saver('model_sep_nn', sess)
-    last_iteration = saver.restore_or_init(train_mode=train_mode)
+    last_iteration = saver.restore_or_init()
 
     if train_mode:
         time_str = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
