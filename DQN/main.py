@@ -55,12 +55,17 @@ with tf.Session() as sess:
     saver = Saver('model', sess)
     saver.restore_or_init()
 
+    done = False
     for episode in range(ITER_MAX):
         rewards_sum = 0
-        done = False
         steps_n = 0
-        brain_info = env.reset(train_mode=train_mode)[default_brain_name]
-        state = brain_info.vector_observations[0]
+        
+        if not done:
+            brain_info = env.reset(train_mode=train_mode)[default_brain_name]
+            state = brain_info.vector_observations[0]
+        else:
+            done = False
+
         while not done and steps_n < MAX_STEPS:
             action_i = dqn.choose_action(state, train_mode)
             action = actions[action_i]
