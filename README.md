@@ -5,4 +5,4 @@ We use [ml-agents](https://github.com/Unity-Technologies/ml-agents) to connect U
 
 For now, we have implemented DDPG, DQN, PPO to solve [a simple roller game](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Learning-Environment-Create-New.md).
 
-![img](https://s1.ax1x.com/2018/12/20/Frnv4A.md.gif)
+![img](https://s1.ax1x.com/2018/12/20/Frnv4A.gif)
