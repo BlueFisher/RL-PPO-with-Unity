@@ -3,7 +3,7 @@ import tensorflow as tf
 import sys
 import time
 
-sys.path.append('..')
+sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
 from util.saver import Saver
 from sep_nn_ppo import PPO
