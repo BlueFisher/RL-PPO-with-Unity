@@ -6,7 +6,6 @@ import time
 sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
 from util.saver import Saver
-from util.run_once import run_once
 from ppo import PPO
 
 
@@ -42,7 +41,7 @@ def simulate(brain_info):
     trans_all = [[] for _ in range(len(brain_info.agents))]
     rewards_sum = [0] * len(brain_info.agents)
     states = brain_info.vector_observations
-    
+
     while False in dones and steps_n < MAX_STEPS:
         actions = ppo.choose_action(states)
         brain_info = env.step({
