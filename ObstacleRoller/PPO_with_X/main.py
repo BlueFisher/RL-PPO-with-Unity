@@ -10,10 +10,12 @@ from ppo import PPO
 
 
 GAMMA = 0.99
-BATCH_SIZE = 2048
-ITER_MAX = 100000
+BATCH_SIZE = 512
+ITER_MAX = 10000
 MAX_STEPS = 500
-LEARNING_RATE = 0.00001
+LEARNING_RATE = 0.0005
+C_DECAY = 1.1
+EXPLORATION_BETA = 0.99
 
 train_mode = 'run' not in sys.argv
 if train_mode:
@@ -32,7 +34,6 @@ action_bound = np.array([float(i) for i in brain_params.vector_action_descriptio
 
 
 def simulate():
-    hitted_sum_real = 0
     hitted_sum = 0
     steps_n = 0
     brain_info = env.reset(train_mode=train_mode)[default_brain_name]
@@ -41,6 +42,7 @@ def simulate():
     last_states_ = [0] * len(brain_info.agents)
     trans_all = [[] for _ in range(len(brain_info.agents))]
     rewards_sum = [0] * len(brain_info.agents)
+    max_exploration_losses = [0] * len(brain_info.agents)
     states = brain_info.vector_observations
     while False in dones and steps_n < MAX_STEPS:
         actions = ppo.choose_action(states)
@@ -50,16 +52,21 @@ def simulate():
         rewards = brain_info.rewards
         local_dones = brain_info.local_done
         states_ = brain_info.vector_observations
+        exploration_losses = ppo.get_exploration_loss(states, actions, states_)
 
         for i in range(len(brain_info.agents)):
             if train_mode:
                 last_states_[i] = states_[i]
-                trans_all[i].append([states[i], actions[i], np.array([rewards[i]]), local_dones[i]])
+                trans_all[i].append([states[i], actions[i], np.array([rewards[i]]), local_dones[i], states_[i]])
 
             if not dones[i]:
-                rewards_sum[i] += rewards[i]
-                if rewards[i] >= 1:
-                    hitted_sum_real += 1
+                if exploration_losses[i] > max_exploration_losses[i]:
+                    max_exploration_losses[i] = exploration_losses[i]
+
+                noramlized_exploration_loss = exploration_losses[i] / max_exploration_losses[i]
+                bonus = noramlized_exploration_loss / ((steps_n+1) * C_DECAY)
+
+                rewards_sum[i] += rewards[i] + EXPLORATION_BETA * bonus
             if rewards[i] >= 1:
                 hitted_sum += 1
 
@@ -80,22 +87,22 @@ def simulate():
         for trans in trans_all:
             trans_with_discounted_rewards_all += trans
 
-        return trans_with_discounted_rewards_all, rewards_sum, hitted_sum, hitted_sum_real
+        return trans_with_discounted_rewards_all, rewards_sum, hitted_sum
     else:
-        return None, rewards_sum, hitted_sum, hitted_sum_real
+        return None, rewards_sum, hitted_sum
 
 
 with tf.Session() as sess:
-
-    ppo = PPO(sess,
-              state_dim,
-              action_dim,
-              action_bound,
-              c2=0.001,
-              epsilon=0.2,
-              lr=LEARNING_RATE,
-              lr_v=LEARNING_RATE,
-              K=10)
+    with tf.device('/cpu:0'):
+        ppo = PPO(sess,
+                  state_dim,
+                  action_dim,
+                  action_bound,
+                  c1=1,
+                  c2=0.001,
+                  epsilon=0.2,
+                  lr=LEARNING_RATE,
+                  K=10)
 
     saver = Saver('model', sess)
     last_iteration = saver.restore_or_init()
@@ -107,7 +114,7 @@ with tf.Session() as sess:
         summary_writer = tf.summary.FileWriter(f'log/{time_str}')
 
     for iteration in range(last_iteration, last_iteration + ITER_MAX + 1):
-        trans_with_discounted_r, rewards_sum, hitted, hitted_real = simulate()
+        trans_with_discounted_r, rewards_sum, hitted = simulate()
         mean_reward = sum(rewards_sum) / len(rewards_sum)
 
         if train_mode:
@@ -116,7 +123,8 @@ with tf.Session() as sess:
                 s, a, discounted_r, *_ = [np.array(e) for e in zip(*batch)]
                 ppo.train(s, a, discounted_r)
 
-            s, a, discounted_r, *_ = [np.array(e) for e in zip(*trans_with_discounted_r)]
+            s, a, discounted_r, *_, s_ = [np.array(e) for e in zip(*trans_with_discounted_r)]
+            ppo.train_exploration_loss(s, a, s_)
             summaries = ppo.get_summaries(s, a, discounted_r)
             summary_writer.add_summary(summaries, iteration)
             summaries = tf.Summary(value=[
@@ -132,4 +140,4 @@ with tf.Session() as sess:
             if iteration % 20 == 0:
                 ppo.print_test(s)
 
-        print(f'iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}, hitted_real {hitted_real}')
+        print(f'iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}')

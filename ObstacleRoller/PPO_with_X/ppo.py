@@ -13,10 +13,10 @@ class PPO(object):
                  state_dim,
                  action_dim,
                  action_bound,
+                 c1,  # value loss coefficient
                  c2,  # entropy coefficient
                  epsilon,  # clip epsilon
                  lr,
-                 lr_v,
                  K):  # train K epochs
         self.sess = sess
 
@@ -25,15 +25,10 @@ class PPO(object):
         self.a_bound = action_bound
         self.K = K
 
-        
-
         self.pl_s = tf.placeholder(tf.float32, shape=(None, state_dim), name='s_t')
 
-        pi, params = self._build_net(self.pl_s, 'policy', True)
-        old_pi, old_params = self._build_net(self.pl_s, 'old_policy', False)
-
-        self.v, v_params = self._build_critic_net(self.pl_s, 'value', True)
-        old_v, old_v_params = self._build_critic_net(self.pl_s, 'old_value', False)
+        pi, self.v, params = self._build_net(self.pl_s, 'policy', True)
+        old_pi, old_v, old_params = self._build_net(self.pl_s, 'old_policy', False)
 
         self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_r')
 
@@ -48,7 +43,12 @@ class PPO(object):
         ))
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v))
         S = tf.reduce_mean(pi.entropy())
-        L = L_clip + c2 * S
+        L = L_clip - c1 * L_vf + c2 * S
+
+        self.pl_s_ = tf.placeholder(tf.float32, shape=(None, state_dim), name='s_t1')
+        self.s_estimated = self._build_exploration_net(self.pl_s, self.pl_a)
+        self.exploration_loss = tf.reduce_mean(tf.square(self.pl_s_ - self.s_estimated), axis=1)
+        self.train_exploration_loss_op = tf.train.AdamOptimizer(lr).minimize(self.exploration_loss)
 
         tf.summary.scalar('loss/-clipped_objective', L_clip)
         tf.summary.scalar('loss/value_function', L_vf)
@@ -58,36 +58,23 @@ class PPO(object):
 
         self.choose_action_op = tf.squeeze(pi.sample(1), axis=0)
         self.train_op = tf.train.AdamOptimizer(lr).minimize(-L)
-        self.train_v_op = tf.train.AdamOptimizer(lr_v).minimize(L_vf)
         self.update_params_op = [tf.assign(r, v) for r, v in zip(old_params, params)]
-        self.update_v_params_op = [tf.assign(r, v) for r, v in zip(old_v_params, v_params)]
-
-    def _build_critic_net(self, inputs, scope, trainable):
-        with tf.variable_scope(scope):
-            l = tf.layers.dense(inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            v = tf.layers.dense(l, 1, trainable=trainable)
-
-            params = tf.get_variable_scope().global_variables()
-
-        return v, params
 
     def _build_net(self, inputs, scope, trainable):
         with tf.variable_scope(scope):
-            l = tf.layers.dense(inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(inputs, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
 
-            mu = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            mu = tf.layers.dense(mu, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
+            prob_l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            prob_l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            mu = tf.layers.dense(prob_l, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
+            sigma = tf.layers.dense(prob_l, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
 
-            sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(sigma, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
+            v_l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            v_l = tf.layers.dense(v_l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
+            v = tf.layers.dense(v_l, 1, trainable=trainable, **initializer_helper)
 
             mu, sigma = mu * self.a_bound, sigma
             if trainable:
@@ -98,7 +85,28 @@ class PPO(object):
 
             params = tf.get_variable_scope().global_variables()
 
-        return norm_dist, params
+        return norm_dist, v, params
+
+    def _build_exploration_net(self, s, a):
+        with tf.variable_scope('exploration'):
+            l = tf.concat([s, a], 1)
+            l = tf.layers.dense(l, self.s_dim, activation=tf.nn.relu, **initializer_helper)
+            s_estimated = tf.layers.dense(l, self.s_dim, **initializer_helper)
+
+        return s_estimated
+
+    def get_exploration_loss(self, s, a, s_):
+        assert len(s.shape) == 2
+        assert len(a.shape) == 2
+        assert len(s_.shape) == 2
+
+        exploration_loss = self.sess.run(self.exploration_loss, {
+            self.pl_s: s,
+            self.pl_a: a,
+            self.pl_s_: s_
+        })
+        assert len(exploration_loss.shape) == 1
+        return exploration_loss
 
     def get_v(self, s):
         assert len(s.shape) == 1
@@ -125,13 +133,11 @@ class PPO(object):
         return np.clip(a, -self.a_bound, self.a_bound)
 
     def get_summaries(self, s, a, discounted_r):
-        summaries = self.sess.run(self.summaries, {
+        return self.sess.run(self.summaries, {
             self.pl_s: s,
             self.pl_a: a,
             self.pl_discounted_r: discounted_r
         })
-
-        return summaries
 
     def train(self, s, a, discounted_r):
         assert len(s.shape) == 2
@@ -139,7 +145,6 @@ class PPO(object):
         assert len(discounted_r.shape) == 2
 
         self.sess.run(self.update_params_op)
-        self.sess.run(self.update_v_params_op)
 
         # K epochs
         for i in range(self.K):
@@ -148,7 +153,16 @@ class PPO(object):
                 self.pl_a: a,
                 self.pl_discounted_r: discounted_r
             })
-            self.sess.run(self.train_v_op, {
+
+    def train_exploration_loss(self, s, a, s_):
+        assert len(s.shape) == 2
+        assert len(a.shape) == 2
+        assert len(s_.shape) == 2
+
+        # K epochs
+        for i in range(self.K):
+            self.sess.run(self.train_exploration_loss_op, {
                 self.pl_s: s,
-                self.pl_discounted_r: discounted_r
+                self.pl_a: a,
+                self.pl_s_: s_
             })
