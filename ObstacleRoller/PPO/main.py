@@ -6,6 +6,7 @@ import time
 sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
 from util.saver import Saver
+from util.run_once import run_once
 from ppo import PPO
 
 
@@ -31,17 +32,17 @@ action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 
-def simulate():
+def simulate(brain_info):
     hitted_sum_real = 0
     hitted_sum = 0
     steps_n = 0
-    brain_info = env.reset(train_mode=train_mode)[default_brain_name]
 
     dones = [False] * len(brain_info.agents)
     last_states_ = [0] * len(brain_info.agents)
     trans_all = [[] for _ in range(len(brain_info.agents))]
     rewards_sum = [0] * len(brain_info.agents)
     states = brain_info.vector_observations
+    
     while False in dones and steps_n < MAX_STEPS:
         actions = ppo.choose_action(states)
         brain_info = env.step({
@@ -80,9 +81,9 @@ def simulate():
         for trans in trans_all:
             trans_with_discounted_rewards_all += trans
 
-        return trans_with_discounted_rewards_all, rewards_sum, hitted_sum, hitted_sum_real
+        return brain_info, trans_with_discounted_rewards_all, rewards_sum, hitted_sum, hitted_sum_real
     else:
-        return None, rewards_sum, hitted_sum, hitted_sum_real
+        return brain_info, None, rewards_sum, hitted_sum, hitted_sum_real
 
 
 with tf.Session() as sess:
@@ -106,8 +107,9 @@ with tf.Session() as sess:
         summary_writer.close()
         summary_writer = tf.summary.FileWriter(f'log/{time_str}')
 
+    brain_info = env.reset(train_mode=train_mode)[default_brain_name]
     for iteration in range(last_iteration, last_iteration + ITER_MAX + 1):
-        trans_with_discounted_r, rewards_sum, hitted, hitted_real = simulate()
+        brain_info, trans_with_discounted_r, rewards_sum, hitted, hitted_real = simulate(brain_info)
         mean_reward = sum(rewards_sum) / len(rewards_sum)
 
         if train_mode:
