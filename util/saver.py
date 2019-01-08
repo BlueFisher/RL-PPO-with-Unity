@@ -2,10 +2,13 @@ import tensorflow as tf
 
 
 class Saver(object):
-    def __init__(self, model_path, sess):
+    def __init__(self, model_path, sess, var_list=None):
         self.model_path = model_path
         self.sess = sess
-        self.saver = tf.train.Saver(max_to_keep=10)
+        if var_list is None:
+            self.saver = tf.train.Saver(max_to_keep=10)
+        else:
+            self.saver = tf.train.Saver(var_list, max_to_keep=10)
 
     def restore_or_init(self, step=None):
         last_step = 0
