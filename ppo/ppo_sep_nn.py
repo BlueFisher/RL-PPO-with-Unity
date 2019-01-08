@@ -126,7 +126,7 @@ class PPO(object):
             sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, tf.clip_by_value(sigma, 0, self.variance_bound)
+            mu, sigma = mu * self.a_bound, sigma
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
@@ -174,6 +174,7 @@ class PPO(object):
         return self.sess.run(self.lr.assign(lr / delta))
 
     def save_model(self, iteration):
+        iteration += self.init_iteration
         self.saver.save(iteration)
 
     def _restore_variables_cachable(self):
@@ -187,6 +188,7 @@ class PPO(object):
             self.variables_cached = self.variables_cached_tmp
 
     def write_constant_summaries(self, constant_summaries, iteration):
+        iteration += self.init_iteration
         if self.summary_writer is not None:
             summaries = tf.Summary(value=[tf.Summary.Value(tag=i['tag'],
                                                            simple_value=i['simple_value'])
@@ -198,6 +200,7 @@ class PPO(object):
         assert len(a.shape) == 2
         assert len(discounted_r.shape) == 2
         assert s.shape[0] == a.shape[0] == discounted_r.shape[0]
+        iteration += self.init_iteration
 
         self.sess.run(self.update_variables_op)
 
@@ -224,3 +227,6 @@ class PPO(object):
                     self.pl_a: _a,
                     self.pl_discounted_r: _discounted_r
                 })
+
+    def dispose(self):
+        self.sess.close()

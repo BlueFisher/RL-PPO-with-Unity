@@ -116,3 +116,5 @@ dmypy.json
 
 log
 model
+tensorboard_log
+tensorflow_model

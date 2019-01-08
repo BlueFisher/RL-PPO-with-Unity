@@ -1,3 +1,5 @@
+import os
+
 import tensorflow as tf
 
 
@@ -5,6 +7,13 @@ class Saver(object):
     def __init__(self, model_path, sess, var_list=None):
         self.model_path = model_path
         self.sess = sess
+
+        # create model path if not exists
+        dir_path = '/'.join(model_path.split('/')[:-1])
+        is_exists = os.path.exists(dir_path)
+        if not is_exists:
+            os.makedirs(dir_path)
+
         if var_list is None:
             self.saver = tf.train.Saver(max_to_keep=10)
         else:

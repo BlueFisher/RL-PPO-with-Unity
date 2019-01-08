@@ -27,7 +27,7 @@ def simulate(env, brain_info):
     len_agents = len(brain_info.agents)
     dones = [False] * len_agents
     last_states_ = [0] * len_agents
-    trans_all = [[] for _ in range(len_agents)]  # 所有 agents 的 transition 集合
+    trans_all = [[] for _ in range(len_agents)]  # list of all transition each agent
     rewards_sum = [0] * len_agents
     states = brain_info.vector_observations
 
@@ -64,7 +64,7 @@ def simulate(env, brain_info):
 
     if train_mode:
         for i in range(len(brain_info.agents)):
-            trans = trans_all[i]  # 每个 agent 的所有 transition
+            trans = trans_all[i]  # all transitions in each agent
             # for j in range(len(trans) - 1, -1, -1):
             #     if trans[j][3]:
             #         break
@@ -76,7 +76,7 @@ def simulate(env, brain_info):
                     v_state_ = 0
                 v_state_ = tran[2] + GAMMA * v_state_
                 tran[2] = v_state_
-        # 所有 agents 带 discounted_rewards 的 transition 合并为一个数组
+        # all transitions with discounted rewards of each agent merge into one list
         trans_with_discounted_rewards_all = []
         for trans in trans_all:
             trans_with_discounted_rewards_all += trans
@@ -91,10 +91,10 @@ print(name)
 reset_config = {
     'copy': AGENTS_NUM
 }
-env = UnityEnvironment(file_name='C:\\Users\\Fisher\\Documents\\Unity\\rl-test-build\\rl-test.exe',
-                       no_graphics=True,
-                       base_port=5002)
-# env = UnityEnvironment()
+# env = UnityEnvironment(file_name='C:\\Users\\Fisher\\Documents\\Unity\\rl-test-build\\rl-test.exe',
+#                        no_graphics=True,
+#                        base_port=5002)
+env = UnityEnvironment()
 default_brain_name = env.brain_names[0]
 
 brain_params = env.brains[default_brain_name]
@@ -111,7 +111,7 @@ ppo = PPO(state_dim=state_dim,
 
 mean_rewards = list()
 brain_info = env.reset(train_mode=train_mode, config=reset_config)[default_brain_name]
-for iteration in range(ppo.init_iteration, ppo.init_iteration + ITER_MAX + 1):
+for iteration in range(ITER_MAX + 1):
     if env.global_done:
         brain_info = env.reset(train_mode=train_mode, config=reset_config)[default_brain_name]
     brain_info, trans_with_discounted_r, rewards_sum, hitted, hitted_real = simulate(env, brain_info)
@@ -137,3 +137,6 @@ for iteration in range(ppo.init_iteration, ppo.init_iteration + ITER_MAX + 1):
         ppo.train(s, a, discounted_r, iteration)
 
     print(f'iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}, hitted_real {hitted_real}')
+
+env.close()
+ppo.dispose()
