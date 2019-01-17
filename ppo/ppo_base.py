@@ -13,8 +13,6 @@ initializer_helper = {
     'bias_initializer': tf.constant_initializer(0.1)
 }
 
-np.set_printoptions(threshold=50)
-
 
 class PPO_Base(object):
     def __init__(self,
@@ -26,6 +24,7 @@ class PPO_Base(object):
                  summary_name=None,
                  write_summary_graph=False,
                  batch_size=2048,
+                 variance_bound=1.,
                  c1=1,
                  c2=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip epsilon
@@ -41,6 +40,7 @@ class PPO_Base(object):
         self.s_dim = state_dim
         self.a_dim = action_dim
         self.a_bound = action_bound
+        self.variance_bound = variance_bound
         self.batch_size = batch_size
         self.epoch_size = epoch_size
         self.save_per_iter = save_per_iter
@@ -76,6 +76,7 @@ class PPO_Base(object):
 
             self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
             ratio = policy.prob(self.pl_a) / old_policy.prob(self.pl_a)
+            self.policy_prob = policy.prob(self.pl_a)
 
             L_clip = tf.math.reduce_mean(tf.math.minimum(
                 ratio * advantage,  # surrogate objective
@@ -175,6 +176,20 @@ class PPO_Base(object):
                                           for i in constant_summaries])
             self.summary_writer.add_summary(summaries, iteration)
 
+    def get_not_zero_prob_bool_mask(self, s, a):
+        policy_prob = self.sess.run(self.policy_prob, {
+            self.pl_s: s,
+            self.pl_a: a
+        })
+        bool_mask = ~np.any(policy_prob <= 1.e-5, axis=1)
+        return bool_mask
+
+    # def get_min_policy_prob(self, s, a):
+    #     return np.min(self.sess.run(self.policy_prob, {
+    #         self.pl_s: s,
+    #         self.pl_a: a,
+    #     }))
+
     def train(self, s, a, discounted_r, mean_reward, iteration):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
@@ -196,6 +211,16 @@ class PPO_Base(object):
                 self.pl_discounted_r: discounted_r
             })
             self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
+
+        # old_policy_probs = self.sess.run(self.old_policy_prob, {
+        #     self.pl_s: s,
+        #     self.pl_a: a
+        # })
+        # idx = ~np.any(old_policy_probs <= 1.e-5, axis=1)
+        # print(len(s), np.sum(~idx))
+        # s = s[idx]
+        # a = a[idx]
+        # discounted_r = discounted_r[idx]
 
         for i in range(0, s.shape[0], self.batch_size):
             _s, _a, _discounted_r = (s[i:i + self.batch_size],

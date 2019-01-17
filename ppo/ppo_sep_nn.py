@@ -39,9 +39,9 @@ class PPO(PPO_Base):
             mu = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.softplus, trainable=trainable, **initializer_helper)
+            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, sigma
+            mu, sigma = mu * self.a_bound, sigma * self.variance_bound
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
