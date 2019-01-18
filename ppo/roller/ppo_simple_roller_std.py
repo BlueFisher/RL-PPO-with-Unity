@@ -1,12 +1,10 @@
+import sys
+
 import numpy as np
 import tensorflow as tf
 
-from ppo_base import PPO_Base
-
-initializer_helper = {
-    'kernel_initializer': tf.random_normal_initializer(0., 0.1),
-    'bias_initializer': tf.constant_initializer(0.1)
-}
+sys.path.append('..')
+from ppo_base import PPO_Base, initializer_helper
 
 
 class PPO(PPO_Base):

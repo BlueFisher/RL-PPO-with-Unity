@@ -23,14 +23,16 @@ class PPO_Base(object):
                  summary_path='log',
                  summary_name=None,
                  write_summary_graph=False,
+                 seed=None,
                  batch_size=2048,
                  variance_bound=1.,
                  c1=1,
                  c2=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip epsilon
                  init_lr=0.00005,
-                 epoch_size=10,
-                 save_per_iter=200):  # train K epochs
+                 epoch_size=10,  # train K epochs
+                 save_per_iter=200,
+                 mean_rewards_deque_len=50):
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -46,6 +48,8 @@ class PPO_Base(object):
         self.save_per_iter = save_per_iter
 
         with self.graph.as_default():
+            if seed is not None:
+                tf.random.set_random_seed(seed)
             self._build_model(c1, c2, epsilon, init_lr)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
@@ -61,7 +65,7 @@ class PPO_Base(object):
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
         self.variables_cached_deque = collections.deque(maxlen=10)
-        self.mean_rewards_deque = collections.deque(maxlen=50)
+        self.mean_rewards_deque = collections.deque(maxlen=mean_rewards_deque_len)
 
     def _build_model(self, c1, c2, epsilon, init_lr):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
@@ -107,7 +111,7 @@ class PPO_Base(object):
 
     def _build_net(self, s_inputs, scope, trainable):
         # return policy, v, variables
-        raise Exception('ppo_base._build_net not implemented')
+        raise Exception('PPO_Base._build_net not implemented')
 
     def get_v(self, s):
         assert len(s.shape) == 1
@@ -211,16 +215,6 @@ class PPO_Base(object):
                 self.pl_discounted_r: discounted_r
             })
             self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
-
-        # old_policy_probs = self.sess.run(self.old_policy_prob, {
-        #     self.pl_s: s,
-        #     self.pl_a: a
-        # })
-        # idx = ~np.any(old_policy_probs <= 1.e-5, axis=1)
-        # print(len(s), np.sum(~idx))
-        # s = s[idx]
-        # a = a[idx]
-        # discounted_r = discounted_r[idx]
 
         for i in range(0, s.shape[0], self.batch_size):
             _s, _a, _discounted_r = (s[i:i + self.batch_size],
