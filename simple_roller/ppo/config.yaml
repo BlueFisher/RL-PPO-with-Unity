@@ -1,3 +1,4 @@
 build_path: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
 write_summary_graph: true
 mean_rewards_deque_len: 50
+seed_increment: 100

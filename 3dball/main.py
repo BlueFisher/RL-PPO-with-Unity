@@ -9,7 +9,7 @@ import tensorflow as tf
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball_sep_nn import PPO
+from ppo_3dball_std import PPO
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -156,7 +156,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         return brain_info, None, rewards_all, None
 
 
-if config['build_path'] is None:
+if config['build_path'] is None or config['build_path'] == '':
     env = UnityEnvironment()
 else:
     env = UnityEnvironment(file_name=config['build_path'],
