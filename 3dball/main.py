@@ -2,7 +2,7 @@ import sys
 import getopt
 import time
 import random
-from itertools import groupby
+import yaml
 
 import numpy as np
 import tensorflow as tf
@@ -11,48 +11,72 @@ sys.path.append('..')
 from mlagents.envs import UnityEnvironment
 from ppo_3dball_sep_nn import PPO
 
+NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
-NAME = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
-BUILD_PATH = None
-PORT = 7000
-GAMMA = 0.99
-ITER_MAX = 2000
-PPO_NUM = 1
-AGENTS_NUM_EACH_PPO = 1
 
-MIX = True
-SHUFFLE = True
+config = {
+    'name': NOW,
+    'build_path': None,
+    'port': 7000,
+    'gamma': 0.99,
+    'iter_max': 2000,
+    'agents_num': 1,
+    'envs_num_per_agent': 1,
+    'seed_increment': None,
+    'mix': True,
+    'shuffle': True
+}
+agent_config = dict()
 
 try:
-    opts, args = getopt.getopt(sys.argv[1:], 'rn:b:p:', ['run',
-                                                         'name=',
-                                                         'build=',
-                                                         'port=',
-                                                         'ppo_num=',
-                                                         'agents_num=',
-                                                         'no_mix',
-                                                         'no_shuffle'])
+    opts, args = getopt.getopt(sys.argv[1:], 'rc:n:b:p:', ['run',
+                                                           'config=',
+                                                           'name=',
+                                                           'build=',
+                                                           'port=',
+                                                           'agents_num=',
+                                                           'envs_num=',
+                                                           'no_mix',
+                                                           'no_shuffle'])
 except getopt.GetoptError:
     raise Exception('ARGS ERROR')
+
+for opt, arg in opts:
+    if opt in ('-c', '--config'):
+        with open(arg) as f:
+            config_file = yaml.load(f)
+            for k, v in config_file.items():
+                if k in config.keys():
+                    config[k] = v
+                else:
+                    agent_config[k] = v
+        break
 
 for opt, arg in opts:
     if opt in ('-r', '--run'):
         TRAIN_MODE = False
     elif opt in ('-n', '--name'):
-        NAME = arg.replace('{time}', NAME)
+        config['name'] = arg.replace('{time}', NOW)
     elif opt in ('-b', '--build'):
-        BUILD_PATH = arg
+        config['build_path'] = arg
     elif opt in ('-p', '--port'):
-        PORT = int(arg)
-    elif opt == '--ppo_num':
-        PPO_NUM = int(arg)
+        config['port'] = int(arg)
     elif opt == '--agents_num':
-        AGENTS_NUM_EACH_PPO = int(arg)
+        config['agents_num'] = int(arg)
+    elif opt == '--envs_num_per_agent':
+        config['envs_num_per_agent'] = int(arg)
 
     elif opt == '--no_mix':
-        MIX = False
+        config['mix'] = False
     elif opt == '--no_shuffle':
-        SHUFFLE = False
+        config['shuffle'] = False
+
+
+for k, v in config.items():
+    print(f'{k:>25}: {v}')
+for k, v in agent_config.items():
+    print(f'{k:>25}: {v}')
+print('=' * 20)
 
 
 def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: list):
@@ -68,8 +92,8 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
     while False in dones and not env.global_done:
         actions = np.zeros((len_agents, action_dim))
         for i, ppo in enumerate(ppos):
-            actions[i * AGENTS_NUM_EACH_PPO:(i + 1) * AGENTS_NUM_EACH_PPO] \
-                = ppo.choose_action(states[i * AGENTS_NUM_EACH_PPO:(i + 1) * AGENTS_NUM_EACH_PPO])
+            actions[i * config['envs_num_per_agent']:(i + 1) * config['envs_num_per_agent']] \
+                = ppo.choose_action(states[i * config['envs_num_per_agent']:(i + 1) * config['envs_num_per_agent']])
 
         brain_info = env.step({
             default_brain_name: actions
@@ -103,15 +127,15 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         trans_discounted_all = trans_all
         cumulative_rewards = list(cumulative_rewards_set)
         cumulative_rewards.sort()
-        good_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 5)]
+        good_cumulative_reward = cumulative_rewards[-10]
 
         for i in range(len_agents):
             trans = trans_discounted_all[i]  # all transitions in each agent
             is_good_tran = False
-            v_state_ = ppos[int(i / AGENTS_NUM_EACH_PPO)].get_v(trans[-1][5])
+            v_state_ = ppos[int(i / config['envs_num_per_agent'])].get_v(trans[-1][5])
             for tran in trans[::-1]:  # state, action, reward, done, max_reached, state_, curr_cumulative_reward
                 if tran[4]:  # max_reached
-                    v_state_ = ppos[int(i / AGENTS_NUM_EACH_PPO)].get_v(tran[5])
+                    v_state_ = ppos[int(i / config['envs_num_per_agent'])].get_v(tran[5])
                     is_good_tran = True
                 elif tran[3]:  # not max_reached but done
                     v_state_ = 0
@@ -119,7 +143,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
                         is_good_tran = True
                     else:
                         is_good_tran = False
-                v_state_ = tran[2] + GAMMA * v_state_
+                v_state_ = tran[2] + config['gamma'] * v_state_
                 tran[2] = v_state_
 
                 if is_good_tran:
@@ -132,12 +156,12 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         return brain_info, None, rewards_all, None
 
 
-if BUILD_PATH is None:
+if config['build_path'] is None:
     env = UnityEnvironment()
 else:
-    env = UnityEnvironment(file_name=BUILD_PATH,
+    env = UnityEnvironment(file_name=config['build_path'],
                            no_graphics=TRAIN_MODE,
-                           base_port=PORT)
+                           base_port=config['port'])
 
 # single brain
 default_brain_name = env.brain_names[0]
@@ -148,11 +172,17 @@ action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 ppos = []
-for i in range(PPO_NUM):
-    if PPO_NUM > 1:
-        name = f'{NAME}/{i}'
+for i in range(config['agents_num']):
+    if config['agents_num'] > 1:
+        name = f'{config["name"]}/{i}'
     else:
-        name = NAME
+        name = config['name']
+
+    if config['seed_increment'] is None:
+        seed = None
+    else:
+        seed = i + config['seed_increment']
+
     print('=' * 10, name, '=' * 10)
     ppos.append(PPO(state_dim=state_dim,
                     action_dim=action_dim,
@@ -160,25 +190,24 @@ for i in range(PPO_NUM):
                     saver_model_path=f'model/{name}',
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
-                    write_summary_graph=True,
-                    seed=i + 100,
-                    mean_rewards_deque_len=10))
+                    seed=seed,
+                    **agent_config))
 
 reset_config = {
-    'copy': AGENTS_NUM_EACH_PPO * PPO_NUM
+    'copy': config['envs_num_per_agent'] * config['agents_num']
 }
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
-for iteration in range(ITER_MAX + 1):
+for iteration in range(config['iter_max'] + 1):
     brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
 
     brain_info, trans_discounted_all, rewards_all, good_trans_discounted_all = \
         simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos)
 
     for i, ppo in enumerate(ppos):
-        start, end = i * AGENTS_NUM_EACH_PPO, (i + 1) * AGENTS_NUM_EACH_PPO
+        start, end = i * config['envs_num_per_agent'], (i + 1) * config['envs_num_per_agent']
         rewards = rewards_all[start:end]
-        mean_reward = sum(rewards) / AGENTS_NUM_EACH_PPO
+        mean_reward = sum(rewards) / config['envs_num_per_agent']
 
         print(f'ppo {i}, iter {iteration}, rewards {mean_reward:.2f}')
 
@@ -193,7 +222,7 @@ for iteration in range(ITER_MAX + 1):
             for trans_discounted_j in trans_discounted_all[start:end]:
                 trans_discounted += trans_discounted_j
 
-            if MIX:
+            if config['mix']:
                 not_self_good_trans_discounted = list()
                 for t in good_trans_discounted_all[:start] + good_trans_discounted_all[end:]:
                     not_self_good_trans_discounted += t
@@ -203,7 +232,7 @@ for iteration in range(ITER_MAX + 1):
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     trans_discounted += [not_self_good_trans_discounted[i] for i, v in enumerate(bool_mask) if v]
 
-            if SHUFFLE:
+            if config['shuffle']:
                 random.shuffle(trans_discounted)
 
             s, a, discounted_r, *_ = [np.array(e) for e in zip(*trans_discounted)]
