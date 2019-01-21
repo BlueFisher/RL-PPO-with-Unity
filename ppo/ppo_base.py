@@ -190,12 +190,6 @@ class PPO_Base(object):
         bool_mask = ~np.any(policy_prob <= 1.e-5, axis=1)
         return bool_mask
 
-    # def get_min_policy_prob(self, s, a):
-    #     return np.min(self.sess.run(self.policy_prob, {
-    #         self.pl_s: s,
-    #         self.pl_a: a,
-    #     }))
-
     def train(self, s, a, discounted_r, mean_reward, iteration):
         assert len(s.shape) == 2
         assert len(a.shape) == 2

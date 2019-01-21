@@ -6,9 +6,9 @@ import random
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
+sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
-from ppo.ppo_simple_roller_sep_nn import PPO
+from ppo_simple_roller_sep_nn import PPO
 
 TRAIN_MODE = True
 NAME = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))

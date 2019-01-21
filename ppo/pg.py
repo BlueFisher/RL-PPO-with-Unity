@@ -1,12 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from .ppo_base import PPO_Base
-
-initializer_helper = {
-    'kernel_initializer': tf.random_normal_initializer(0., 0.1),
-    'bias_initializer': tf.constant_initializer(0.1)
-}
+from .ppo_base import PPO_Base, initializer_helper
 
 
 class PG(PPO_Base):
@@ -21,9 +16,11 @@ class PG(PPO_Base):
         advantage = self.pl_discounted_r - self.v
 
         self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
+        self.policy_prob = policy.prob(self.pl_a)
 
-        L_vf = tf.math.reduce_mean(tf.square(advantage))
-        L = tf.math.reduce_mean(policy.log_prob(self.pl_a) * advantage)
+        L_vf = tf.reduce_mean(tf.square(advantage), name='value_function_loss')
+        L = tf.reduce_mean(policy.log_prob(self.pl_a) * advantage, name='objective')
+        S = tf.reduce_mean(policy.entropy(), name='entropy')
 
         self.choose_action_op = tf.squeeze(policy.sample(1), axis=0)
 
@@ -35,6 +32,7 @@ class PG(PPO_Base):
         self.variables_cachable = [v for v in tf.global_variables() if v != self.lr]
 
         tf.summary.scalar('loss/value_function', L_vf)
+        tf.summary.scalar('loss/-entropy', S)
         tf.summary.scalar('loss/-objective', L)
         tf.summary.scalar('loss/lr', self.lr)
         self.summaries = tf.summary.merge_all()
@@ -44,7 +42,6 @@ class PG(PPO_Base):
             l = tf.layers.dense(s_inputs, 512, tf.nn.relu, **initializer_helper)
             l = tf.layers.dense(l, 256, tf.nn.relu, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, **initializer_helper)
-            l = tf.layers.dense(l, 32, tf.nn.relu, **initializer_helper)
             v = tf.layers.dense(l, 1, **initializer_helper)
 
         return v
@@ -54,14 +51,13 @@ class PG(PPO_Base):
             l = tf.layers.dense(s_inputs, 512, tf.nn.relu, **initializer_helper)
             l = tf.layers.dense(l, 256, tf.nn.relu, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, **initializer_helper)
-            l = tf.layers.dense(l, 32, tf.nn.relu, **initializer_helper)
 
             mu = tf.layers.dense(l, 32, tf.nn.relu, **initializer_helper)
             mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, **initializer_helper)
             sigma = tf.layers.dense(l, 32, tf.nn.relu, **initializer_helper)
-            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.softplus, **initializer_helper)
+            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, sigma
+            mu, sigma = mu * self.a_bound, sigma * self.variance_bound
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
@@ -91,8 +87,14 @@ class PG(PPO_Base):
             _s, _a, _discounted_r = (s[i:i + self.batch_size],
                                      a[i:i + self.batch_size],
                                      discounted_r[i:i + self.batch_size])
-            for _ in range(self.epoch_size):
-                self.sess.run(self.train_op, {
+            for _ in range(1000):
+                self.sess.run(self.train_op[1], {
+                    self.pl_s: _s,
+                    self.pl_a: _a,
+                    self.pl_discounted_r: _discounted_r
+                })
+            for _ in range(10):
+                self.sess.run(self.train_op[0], {
                     self.pl_s: _s,
                     self.pl_a: _a,
                     self.pl_discounted_r: _discounted_r

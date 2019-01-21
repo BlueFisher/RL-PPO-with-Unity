@@ -3,8 +3,8 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
-from ppo_base import PPO_Base, initializer_helper
+sys.path.append('../..')
+from ppo.ppo_base import PPO_Base, initializer_helper
 
 
 class PPO(PPO_Base):
