@@ -9,7 +9,7 @@ import tensorflow as tf
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball_std import PPO
+from ppo_3dball_sep_nn import PPO
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -63,7 +63,7 @@ for opt, arg in opts:
         config['port'] = int(arg)
     elif opt == '--agents_num':
         config['agents_num'] = int(arg)
-    elif opt == '--envs_num_per_agent':
+    elif opt == '--envs_num':
         config['envs_num_per_agent'] = int(arg)
 
     elif opt == '--no_mix':
@@ -127,7 +127,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         trans_discounted_all = trans_all
         cumulative_rewards = list(cumulative_rewards_set)
         cumulative_rewards.sort()
-        good_cumulative_reward = cumulative_rewards[-10]
+        good_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 4)]
 
         for i in range(len_agents):
             trans = trans_discounted_all[i]  # all transitions in each agent
