@@ -9,7 +9,7 @@ import tensorflow as tf
 
 sys.path.append('..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball_sep_nn import PPO
+from ppo_3dball import PPO_SEP, PPO_STD
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -18,13 +18,13 @@ config = {
     'name': NOW,
     'build_path': None,
     'port': 7000,
+    'ppo': 'sep',
     'gamma': 0.99,
     'iter_max': 2000,
     'agents_num': 1,
     'envs_num_per_agent': 1,
     'seed_increment': None,
-    'mix': True,
-    'shuffle': True
+    'mix': True
 }
 agent_config = dict()
 
@@ -34,10 +34,10 @@ try:
                                                            'name=',
                                                            'build=',
                                                            'port=',
+                                                           'ppo=',
                                                            'agents_num=',
                                                            'envs_num=',
-                                                           'no_mix',
-                                                           'no_shuffle'])
+                                                           'no_mix'])
 except getopt.GetoptError:
     raise Exception('ARGS ERROR')
 
@@ -61,6 +61,8 @@ for opt, arg in opts:
         config['build_path'] = arg
     elif opt in ('-p', '--port'):
         config['port'] = int(arg)
+    elif opt == '--ppo':
+        config['ppo'] = int(arg)
     elif opt == '--agents_num':
         config['agents_num'] = int(arg)
     elif opt == '--envs_num':
@@ -68,8 +70,6 @@ for opt, arg in opts:
 
     elif opt == '--no_mix':
         config['mix'] = False
-    elif opt == '--no_shuffle':
-        config['shuffle'] = False
 
 
 for k, v in config.items():
@@ -127,7 +127,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         trans_discounted_all = trans_all
         cumulative_rewards = list(cumulative_rewards_set)
         cumulative_rewards.sort()
-        good_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 4)]
+        good_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 8)]
 
         for i in range(len_agents):
             trans = trans_discounted_all[i]  # all transitions in each agent
@@ -146,7 +146,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
                 v_state_ = tran[2] + config['gamma'] * v_state_
                 tran[2] = v_state_
 
-                if is_good_tran:
+                if is_good_tran and tran[2] > 5:
                     good_trans_discounted_all[i].append(tran)
 
             good_trans_discounted_all[i].reverse()
@@ -183,6 +183,13 @@ for i in range(config['agents_num']):
     else:
         seed = i + config['seed_increment']
 
+    if config['ppo'] == 'sep':
+        PPO = PPO_SEP
+    elif config['ppo'] == 'std':
+        PPO = PPO_STD
+    else:
+        raise Exception(f'PPO name {config["ppo"]} is in correct')
+
     print('=' * 10, name, '=' * 10)
     ppos.append(PPO(state_dim=state_dim,
                     action_dim=action_dim,
@@ -209,7 +216,7 @@ for iteration in range(config['iter_max'] + 1):
         rewards = rewards_all[start:end]
         mean_reward = sum(rewards) / config['envs_num_per_agent']
 
-        print(f'ppo {i}, iter {iteration}, rewards {mean_reward:.2f}')
+        print(f'ppo {i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
 
         if TRAIN_MODE:
             ppo.write_constant_summaries([
@@ -222,18 +229,18 @@ for iteration in range(config['iter_max'] + 1):
             for trans_discounted_j in trans_discounted_all[start:end]:
                 trans_discounted += trans_discounted_j
 
-            if config['mix']:
+            if config['mix'] and not ppo.is_converged:
                 not_self_good_trans_discounted = list()
                 for t in good_trans_discounted_all[:start] + good_trans_discounted_all[end:]:
                     not_self_good_trans_discounted += t
 
                 if len(not_self_good_trans_discounted) > 0:
-                    s, a, *_ = [np.array(e) for e in zip(*not_self_good_trans_discounted)]
+                    s, a, discounted_r, *_ = [np.array(e) for e in zip(*not_self_good_trans_discounted)]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    trans_discounted += [not_self_good_trans_discounted[i] for i, v in enumerate(bool_mask) if v]
-
-            if config['shuffle']:
-                random.shuffle(trans_discounted)
+                    importance = np.squeeze(ppo.get_importance(s, discounted_r))
+                    for i, tran in enumerate(not_self_good_trans_discounted):
+                        if bool_mask[i] and importance[i] >= 3:
+                            trans_discounted.append(tran)
 
             s, a, discounted_r, *_ = [np.array(e) for e in zip(*trans_discounted)]
             ppo.train(s, a, discounted_r, mean_reward, iteration)

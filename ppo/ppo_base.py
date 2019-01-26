@@ -34,7 +34,12 @@ class PPO_Base(object):
                  init_lr=0.00005,
                  epoch_size=10,  # train K epochs
                  save_per_iter=200,
-                 mean_rewards_deque_len=50):
+                 convergence_option={
+                     'mean_rewards_deque_len': 50,
+                     'smooth_ratio': .6,
+                     'variance_threshold': .05,
+                     'mean_rewards_threshold': -0.01
+                 }):
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -48,6 +53,9 @@ class PPO_Base(object):
         self.batch_size = batch_size
         self.epoch_size = epoch_size
         self.save_per_iter = save_per_iter
+        self.convergence_option = convergence_option
+
+        self.is_converged = False
 
         with self.graph.as_default():
             if seed is not None:
@@ -67,7 +75,7 @@ class PPO_Base(object):
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
         self.variables_cached_deque = collections.deque(maxlen=10)
-        self.mean_rewards_deque = collections.deque(maxlen=mean_rewards_deque_len)
+        self.mean_rewards_deque = collections.deque(maxlen=convergence_option['mean_rewards_deque_len'])
 
     def _build_model(self, c1, c2, epsilon, init_lr):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
@@ -88,6 +96,7 @@ class PPO_Base(object):
                 ratio * advantage,  # surrogate objective
                 tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
             ), name='clipped_objective')
+            self.importance = tf.math.abs(self.pl_discounted_r - self.v)
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
             S = tf.reduce_mean(policy.entropy(), name='entropy')
 
@@ -114,6 +123,15 @@ class PPO_Base(object):
     def _build_net(self, s_inputs, scope, trainable):
         # return policy, v, variables
         raise Exception('PPO_Base._build_net not implemented')
+
+    def get_importance(self, s, discounted_r):
+        assert len(s.shape) == 2
+        assert len(discounted_r.shape) == 2
+
+        return self.sess.run(self.importance, {
+            self.pl_discounted_r: discounted_r,
+            self.pl_s: s
+        })
 
     def get_v(self, s):
         assert len(s.shape) == 1
@@ -168,8 +186,10 @@ class PPO_Base(object):
     def _cache_mean_reward_and_judge_converged(self, mean_reward):
         self.mean_rewards_deque.append(mean_reward)
         if len(self.mean_rewards_deque) == self.mean_rewards_deque.maxlen and \
-                np.var(smooth(self.mean_rewards_deque, 0.6)) <= 0.05 and \
-                np.mean(self.mean_rewards_deque) >= -0.01:
+                np.var(smooth(self.mean_rewards_deque,
+                              self.convergence_option['smooth_ratio']
+                              )) <= self.convergence_option['variance_threshold'] and \
+                np.mean(self.mean_rewards_deque) >= self.convergence_option['mean_rewards_threshold']:
             print('CONVERGED')
             self._decrease_lr()
             self.mean_rewards_deque.clear()
@@ -224,4 +244,5 @@ class PPO_Base(object):
                 })
 
     def dispose(self):
+        self.summary_writer.close()
         self.sess.close()

@@ -1,4 +1,4 @@
-build_path: C:\Users\Fisher\Documents\Unity\build-3dball\rl-test.exe
+build_path: /data/build-linux-3dball/rl-test.x86_64
 write_summary_graph: true
 convergence_option:
   mean_rewards_deque_len: 30
