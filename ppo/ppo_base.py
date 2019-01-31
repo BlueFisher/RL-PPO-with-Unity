@@ -31,15 +31,12 @@ class PPO_Base(object):
                  c1=1,
                  c2=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip epsilon
+                 combine_loss=False,
                  init_lr=0.00005,
+                 decay_steps=50,
+                 decay_rate=0.9,
                  epoch_size=10,  # train K epochs
-                 save_per_iter=200,
-                 convergence_option={
-                     'mean_rewards_deque_len': 50,
-                     'smooth_ratio': .6,
-                     'variance_threshold': .05,
-                     'mean_rewards_threshold': -0.01
-                 }):
+                 save_per_iter=200):
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -53,14 +50,11 @@ class PPO_Base(object):
         self.batch_size = batch_size
         self.epoch_size = epoch_size
         self.save_per_iter = save_per_iter
-        self.convergence_option = convergence_option
-
-        self.is_converged = False
 
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(c1, c2, epsilon, init_lr)
+            self._build_model(c1, c2, epsilon, combine_loss, init_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -75,9 +69,8 @@ class PPO_Base(object):
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
         self.variables_cached_deque = collections.deque(maxlen=10)
-        self.mean_rewards_deque = collections.deque(maxlen=convergence_option['mean_rewards_deque_len'])
 
-    def _build_model(self, c1, c2, epsilon, init_lr):
+    def _build_model(self, c1, c2, epsilon, combine_loss, init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
 
         policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
@@ -96,17 +89,26 @@ class PPO_Base(object):
                 ratio * advantage,  # surrogate objective
                 tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
             ), name='clipped_objective')
-            self.importance = tf.math.abs(self.pl_discounted_r - self.v)
+            self.importance = tf.math.squared_difference(self.pl_discounted_r, self.v)
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
             S = tf.reduce_mean(policy.entropy(), name='entropy')
-
-            L = L_clip - c1 * L_vf + c2 * S
 
         self.choose_action_op = tf.squeeze(policy.sample(1), axis=0)
 
         with tf.name_scope('optimizer'):
-            self.lr = tf.get_variable('lr', shape=(), initializer=tf.constant_initializer(init_lr))
-            self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
+            self.global_iter = tf.get_variable('global_iter', shape=(), initializer=tf.constant_initializer(0), trainable=False)
+            self.lr = tf.train.exponential_decay(learning_rate=init_lr,
+                                                 global_step=self.global_iter,
+                                                 decay_steps=decay_steps,
+                                                 decay_rate=decay_rate,
+                                                 staircase=True)
+            if combine_loss:
+                L = L_clip - c1 * L_vf + c2 * S
+                self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
+            else:
+                L = L_clip + c2 * S
+                self.train_op = [tf.train.AdamOptimizer(self.lr).minimize(-L),
+                                 tf.train.AdamOptimizer(self.lr).minimize(L_vf)]
 
         self.update_variables_op = [tf.assign(r, v) for r, v in
                                     zip(old_policy_v_variables, policy_v_variables)]
@@ -161,16 +163,8 @@ class PPO_Base(object):
         if np.isnan(np.min(a)):
             print('WARNING! NAN IN ACTIONS')
             self._restore_variables_cachable()
-            self._decrease_lr()
-            a = self.sess.run(self.choose_action_op, {
-                self.pl_s: s
-            })
 
         return np.clip(a, -self.a_bound, self.a_bound)
-
-    def _decrease_lr(self, delta=2):
-        lr = self.sess.run(self.lr)
-        return self.sess.run(self.lr.assign(lr / delta))
 
     def _restore_variables_cachable(self):
         variables = self.variables_cached_deque[0]
@@ -183,24 +177,12 @@ class PPO_Base(object):
     def _cache_variables_cachable(self):
         self.variables_cached_deque.append(self.sess.run(self.variables_cachable))
 
-    def _cache_mean_reward_and_judge_converged(self, mean_reward):
-        self.mean_rewards_deque.append(mean_reward)
-        if len(self.mean_rewards_deque) == self.mean_rewards_deque.maxlen and \
-                np.var(smooth(self.mean_rewards_deque,
-                              self.convergence_option['smooth_ratio']
-                              )) <= self.convergence_option['variance_threshold'] and \
-                np.mean(self.mean_rewards_deque) >= self.convergence_option['mean_rewards_threshold']:
-            print('CONVERGED')
-            self._decrease_lr()
-            self.mean_rewards_deque.clear()
-
     def write_constant_summaries(self, constant_summaries, iteration):
-        iteration += self.init_iteration
         if self.summary_writer is not None:
             summaries = tf.Summary(value=[tf.Summary.Value(tag=i['tag'],
                                                            simple_value=i['simple_value'])
                                           for i in constant_summaries])
-            self.summary_writer.add_summary(summaries, iteration)
+            self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
 
     def get_not_zero_prob_bool_mask(self, s, a):
         policy_prob = self.sess.run(self.policy_prob, {
@@ -210,7 +192,7 @@ class PPO_Base(object):
         bool_mask = ~np.any(policy_prob <= 1.e-5, axis=1)
         return bool_mask
 
-    def train(self, s, a, discounted_r, mean_reward, iteration):
+    def train(self, s, a, discounted_r, iteration):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
         assert len(discounted_r.shape) == 2
@@ -219,7 +201,6 @@ class PPO_Base(object):
         self.sess.run(self.update_variables_op)  # TODO
 
         self._cache_variables_cachable()
-        self._cache_mean_reward_and_judge_converged(mean_reward)
 
         if iteration % self.save_per_iter == 0:
             self.saver.save(iteration + self.init_iteration)
@@ -231,6 +212,8 @@ class PPO_Base(object):
                 self.pl_discounted_r: discounted_r
             })
             self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
+
+        self.sess.run(self.global_iter.assign(iteration + self.init_iteration))
 
         for i in range(0, s.shape[0], self.batch_size):
             _s, _a, _discounted_r = (s[i:i + self.batch_size],

@@ -18,6 +18,7 @@ class PPO_SEP(PPO_Base):
             l = tf.layers.dense(s_inputs, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             v = tf.layers.dense(l, 1, trainable=trainable, **initializer_helper)
 
             variables = tf.get_variable_scope().global_variables()
@@ -28,13 +29,14 @@ class PPO_SEP(PPO_Base):
         with tf.variable_scope(scope):
             l = tf.layers.dense(s_inputs, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
 
             mu = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, sigma * self.variance_bound + 0.1
+            mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 
@@ -48,14 +50,13 @@ class PPO_STD(PPO_Base):
         with tf.variable_scope(scope):
             l = tf.layers.dense(s_inputs, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
 
             prob_l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             mu = tf.layers.dense(prob_l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(prob_l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
-            mu, sigma = mu * self.a_bound, sigma * self.variance_bound + 0.1
+            mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
 
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
 

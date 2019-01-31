@@ -20,7 +20,7 @@ config = {
     'port': 7000,
     'ppo': 'sep',
     'gamma': 0.99,
-    'iter_max': 2000,
+    'max_iter': 2000,
     'agents_num': 1,
     'envs_num_per_agent': 1,
     'seed_increment': None,
@@ -62,7 +62,7 @@ for opt, arg in opts:
     elif opt in ('-p', '--port'):
         config['port'] = int(arg)
     elif opt == '--ppo':
-        config['ppo'] = int(arg)
+        config['ppo'] = arg
     elif opt == '--agents_num':
         config['agents_num'] = int(arg)
     elif opt == '--envs_num':
@@ -83,7 +83,7 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
     len_agents = len(brain_info.agents)
     dones = [False] * len_agents
     trans_all = [[] for _ in range(len_agents)]  # list of all transition each agent
-    hitted_trans_discounted_all = [[] for _ in range(len_agents)]
+    hitted_trans_all = [[] for _ in range(len_agents)]
     rewards_all = [0] * len_agents
     hitted_real_all = [0] * len_agents
     hitted_all = [0] * len_agents
@@ -105,12 +105,14 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
 
         for i in range(len_agents):
             if TRAIN_MODE:
-                trans_all[i].append([states[i],
-                                     actions[i],
-                                     np.array([rewards[i]]),
-                                     local_dones[i],
-                                     max_reached[i],
-                                     states_[i]])
+                trans_all[i].append({
+                    'state': states[i],
+                    'action': actions[i],
+                    'reward': np.array([rewards[i]]),
+                    'local_done': local_dones[i],
+                    'max_reached': max_reached[i],
+                    'state_': states_[i],
+                })
             if not dones[i]:
                 rewards_all[i] += rewards[i]
                 if rewards[i] >= 1:
@@ -122,30 +124,28 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         states = states_
 
     if TRAIN_MODE:
-        trans_discounted_all = trans_all
-        importance_set = set()
-        importance_all = list()
         for i in range(len_agents):
-            trans = trans_discounted_all[i]  # all transitions in each agent
+            ppo = ppos[int(i / config['envs_num_per_agent'])]
+            trans = trans_all[i]  # all transitions in each agent
             is_hitted_tran = False
-            v_state_ = ppos[int(i / config['envs_num_per_agent'])].get_v(trans[-1][5])
-            for tran in trans[::-1]:  # state, action, reward, done, max_reached, state_
-                if tran[4]:  # max_reached
-                    v_state_ = ppos[int(i / config['envs_num_per_agent'])].get_v(tran[5])
+            v_state_ = ppo.get_v(trans[-1]['state_'])
+            for tran in trans[::-1]:
+                if tran['max_reached']:
+                    v_state_ = ppo.get_v(tran['state_'])
                     is_hitted_tran = False
-                elif tran[3]:  # not max_reached but done
+                elif tran['local_done']:  # not max_reached but done
                     v_state_ = 0
-                    if tran[2] >= 1:
+                    if tran['reward'] >= 1:
                         is_hitted_tran = True
                     else:
                         is_hitted_tran = False
-                v_state_ = tran[2] + config['gamma'] * v_state_
-                tran[2] = v_state_
+                v_state_ = tran['reward'] + config['gamma'] * v_state_
+                tran['discounted_return'] = v_state_
 
                 if is_hitted_tran:
-                    hitted_trans_discounted_all[i].append(tran)
+                    hitted_trans_all[i].append(tran)
 
-        return brain_info, trans_discounted_all, rewards_all, hitted_all, hitted_real_all, hitted_trans_discounted_all
+        return brain_info, trans_all, rewards_all, hitted_all, hitted_real_all, hitted_trans_all
     else:
         return brain_info, None, rewards_all, hitted_all, hitted_real_all, None
 
@@ -179,8 +179,10 @@ for i in range(config['agents_num']):
 
     if config['ppo'] == 'sep':
         PPO = PPO_SEP
+        combine_loss = False
     elif config['ppo'] == 'std':
         PPO = PPO_STD
+        combine_loss = True
     else:
         raise Exception(f'PPO name {config["ppo"]} is in correct')
 
@@ -192,6 +194,7 @@ for i in range(config['agents_num']):
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
                     seed=seed,
+                    combine_loss=combine_loss,
                     **agent_config))
 
 reset_config = {
@@ -199,12 +202,11 @@ reset_config = {
 }
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
-for iteration in range(config['iter_max'] + 1):
+for iteration in range(config['max_iter'] + 1):
     if env.global_done:
         brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
 
-    brain_info, trans_discounted_all, rewards_all, hitted_all, hitted_real_all, \
-        hitted_trans_discounted_all = \
+    brain_info, trans_all, rewards_all, hitted_all, hitted_real_all, hitted_trans_all = \
         simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos)
 
     for i, ppo in enumerate(ppos):
@@ -225,22 +227,30 @@ for iteration in range(config['iter_max'] + 1):
                 {'tag': 'reward/hitted_real', 'simple_value': hitted_real}
             ], iteration)
 
-            trans_discounted = list()
-            for trans_discounted_j in trans_discounted_all[start:end]:
-                trans_discounted += trans_discounted_j
+            trans_for_training = list()
+            for trans in trans_all[start:end]:
+                trans_for_training += trans
 
             if config['mix']:
-                not_self_hitted_trans_discounted = list()
-                for t in hitted_trans_discounted_all[:start] + hitted_trans_discounted_all[end:]:
-                    not_self_hitted_trans_discounted += t
+                not_self_hitted_trans = list()
+                for t in hitted_trans_all[:start] + hitted_trans_all[end:]:
+                    not_self_hitted_trans += t
 
-                if len(not_self_hitted_trans_discounted) > 0:
-                    s, a, *_ = [np.array(e) for e in zip(*not_self_hitted_trans_discounted)]
+                if len(not_self_hitted_trans) > 0:
+                    s, a, discounted_r =\
+                        [np.array(e) for e in zip(*[(t['state'],
+                                                     t['action'],
+                                                     t['discounted_return']) for t in not_self_hitted_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    trans_discounted += [not_self_hitted_trans_discounted[i] for i, v in enumerate(bool_mask) if v]
+                    trans_for_training += [not_self_hitted_trans[i] for i, v in enumerate(bool_mask) if v]
 
-            s, a, discounted_r, *_ = [np.array(e) for e in zip(*trans_discounted)]
-            ppo.train(s, a, discounted_r, mean_reward, iteration)
+                np.random.shuffle(trans_for_training)
+                
+            s, a, discounted_r =\
+                [np.array(e) for e in zip(*[(t['state'],
+                                             t['action'],
+                                             t['discounted_return']) for t in trans_for_training])]
+            ppo.train(s, a, discounted_r, iteration)
 
     print('=' * 20)
 

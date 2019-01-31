@@ -1,4 +1,4 @@
-build_path: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
+build_path: /data/build-linux-simple-roller/rl-test.x86_64
 write_summary_graph: true
 seed_increment: 100
 decay_steps: 200

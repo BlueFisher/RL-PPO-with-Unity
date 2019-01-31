@@ -1,8 +1,5 @@
 build_path: /data/build-linux-3dball/rl-test.x86_64
 write_summary_graph: true
-convergence_option:
-  mean_rewards_deque_len: 30
-  smooth_ratio: 1
-  variance_threshold: 0.1
-  mean_rewards_threshold: 80
 seed_increment: 200
+decay_steps: 50
+decay_rate: 0.9

@@ -18,6 +18,7 @@ class PPO_SEP(PPO_Base):
             l = tf.layers.dense(s_inputs, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             v = tf.layers.dense(l, 1, trainable=trainable, **initializer_helper)
 
             variables = tf.get_variable_scope().global_variables()
