@@ -11,8 +11,8 @@ from util.saver import Saver
 from util.utils import smooth
 
 initializer_helper = {
-    'kernel_initializer': tf.random_normal_initializer(0., 0.1),
-    'bias_initializer': tf.constant_initializer(0.1)
+    'kernel_initializer': tf.random_normal_initializer(0, .1),
+    'bias_initializer': tf.constant_initializer(.1)
 }
 
 
@@ -72,24 +72,21 @@ class PPO_Base(object):
 
     def _build_model(self, c1, c2, epsilon, combine_loss, init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
-
         policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
         old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
 
-        self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
-
         with tf.name_scope('objective_and_value_function_loss'):
-            advantage = self.pl_discounted_r - old_v
-
             self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
+            self.pl_advantage = tf.placeholder(tf.float32, shape=(None, 1), name='advantage')
+            self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
             ratio = policy.prob(self.pl_a) / old_policy.prob(self.pl_a)
             self.policy_prob = policy.prob(self.pl_a)
 
             L_clip = tf.math.reduce_mean(tf.math.minimum(
-                ratio * advantage,  # surrogate objective
-                tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * advantage
+                ratio * self.pl_advantage,  # surrogate objective
+                tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * self.pl_advantage
             ), name='clipped_objective')
-            self.importance = tf.math.squared_difference(self.pl_discounted_r, self.v)
+
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
             S = tf.reduce_mean(policy.entropy(), name='entropy')
 
@@ -122,25 +119,29 @@ class PPO_Base(object):
         tf.summary.scalar('loss/lr', self.lr)
         self.summaries = tf.summary.merge_all()
 
-    def _build_net(self, s_inputs, scope, trainable):
+    def _build_net(self, s_inputs, trainable):
         # return policy, v, variables
         raise Exception('PPO_Base._build_net not implemented')
 
-    def get_importance(self, s, discounted_r):
+    def get_td_error(self, s, r, s_, done):
         assert len(s.shape) == 2
-        assert len(discounted_r.shape) == 2
+        assert len(r.shape) == 2
+        assert len(s_.shape) == 2
+        assert len(done.shape) == 2
 
-        return self.sess.run(self.importance, {
-            self.pl_discounted_r: discounted_r,
-            self.pl_s: s
+        return self.sess.run(self.td_error, {
+            self.pl_s: s,
+            self.pl_r: r,
+            self.pl_s_: s_,
+            self.pl_done: done
         })
 
     def get_v(self, s):
-        assert len(s.shape) == 1
+        assert len(s.shape) == 2
 
         return self.sess.run(self.v, {
-            self.pl_s: np.array(s[np.newaxis, :])
-        }).squeeze()
+            self.pl_s: s
+        })
 
     def choose_action(self, s):
         assert len(s.shape) == 2
@@ -192,11 +193,12 @@ class PPO_Base(object):
         bool_mask = ~np.any(policy_prob <= 1.e-5, axis=1)
         return bool_mask
 
-    def train(self, s, a, discounted_r, iteration):
+    def train(self, s, a, adv, discounted_r, iteration):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
+        assert len(adv.shape) == 2
         assert len(discounted_r.shape) == 2
-        assert s.shape[0] == a.shape[0] == discounted_r.shape[0]
+        assert s.shape[0] == a.shape[0] == adv.shape[0] == discounted_r.shape[0]
 
         self.sess.run(self.update_variables_op)  # TODO
 
@@ -209,6 +211,7 @@ class PPO_Base(object):
             summaries = self.sess.run(self.summaries, {
                 self.pl_s: s,
                 self.pl_a: a,
+                self.pl_advantage: adv,
                 self.pl_discounted_r: discounted_r
             })
             self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
@@ -216,13 +219,15 @@ class PPO_Base(object):
         self.sess.run(self.global_iter.assign(iteration + self.init_iteration))
 
         for i in range(0, s.shape[0], self.batch_size):
-            _s, _a, _discounted_r = (s[i:i + self.batch_size],
-                                     a[i:i + self.batch_size],
-                                     discounted_r[i:i + self.batch_size])
+            _s, _a, _adv, _discounted_r = (s[i:i + self.batch_size],
+                                           a[i:i + self.batch_size],
+                                           adv[i:i + self.batch_size],
+                                           discounted_r[i:i + self.batch_size])
             for _ in range(self.epoch_size):
                 self.sess.run(self.train_op, {
                     self.pl_s: _s,
                     self.pl_a: _a,
+                    self.pl_advantage: _adv,
                     self.pl_discounted_r: _discounted_r
                 })
 

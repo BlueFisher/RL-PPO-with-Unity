@@ -10,6 +10,8 @@ class Saver(object):
 
         # create model path if not exists
         dir_path = '/'.join(model_path.split('/')[:-1])
+        if dir_path == '':
+            dir_path = model_path
         is_exists = os.path.exists(dir_path)
         if not is_exists:
             os.makedirs(dir_path)

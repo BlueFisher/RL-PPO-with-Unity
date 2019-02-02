@@ -35,8 +35,8 @@ try:
                                                            'build=',
                                                            'port=',
                                                            'ppo=',
-                                                           'agents_num=',
-                                                           'envs_num=',
+                                                           'agents=',
+                                                           'envs=',
                                                            'no_mix'])
 except getopt.GetoptError:
     raise Exception('ARGS ERROR')
@@ -63,9 +63,9 @@ for opt, arg in opts:
         config['port'] = int(arg)
     elif opt == '--ppo':
         config['ppo'] = arg
-    elif opt == '--agents_num':
+    elif opt == '--agents':
         config['agents_num'] = int(arg)
-    elif opt == '--envs_num':
+    elif opt == '--envs':
         config['envs_num_per_agent'] = int(arg)
 
     elif opt == '--no_mix':
@@ -270,14 +270,14 @@ for iteration in range(config['max_iter'] + 1):
                                                      t['action'],
                                                      t['discounted_return']) for t in trans_auxiliary_for_traning])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    # importance = np.squeeze(ppo.get_importance(s, discounted_r))
+                    importance = np.squeeze(ppo.get_importance(s, discounted_r))
                     for j, tran in enumerate(trans_auxiliary_for_traning):
-                        if bool_mask[j]:
+                        if bool_mask[j] and importance[j] > 3:
                             trans_auxiliary_for_traning_filtered.append(tran)
 
                 np.random.shuffle(trans_auxiliary_for_traning_filtered)
-                trans_auxiliary_for_traning_filtered = trans_auxiliary_for_traning_filtered[:int(len(trans_auxiliary_for_traning_filtered) / 4)]
-
+                trans_auxiliary_for_traning_filtered = trans_auxiliary_for_traning_filtered[:int(len(trans_auxiliary_for_traning_filtered) / 3)]
+                print(len(trans_for_training), len(trans_not_self_for_training_filtered), len(trans_auxiliary_for_traning_filtered))
                 trans_for_training = trans_for_training + trans_not_self_for_training_filtered + trans_auxiliary_for_traning_filtered
 
                 np.random.shuffle(trans_for_training)
