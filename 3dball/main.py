@@ -133,9 +133,9 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
         cumulative_rewards_list.sort()
         good_cumulative_reward = cumulative_rewards_list[-int(len(cumulative_rewards_list) / 6)]
 
-        for i in range(len_agents):
-            ppo = ppos[int(i / config['envs_num_per_agent'])]
-            trans = trans_all[i]
+        for agents_i in range(len_agents):
+            ppo = ppos[int(agents_i / config['envs_num_per_agent'])]
+            trans = trans_all[agents_i]
 
             # compute discounted return
             v_tmp = ppo.get_v(trans[-1]['state_'][np.newaxis, :])[0]
@@ -152,8 +152,8 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
             if config['lambda'] == 1:
                 s = np.array([t['state'] for t in trans])
                 v_s = ppo.get_v(s)
-                for j, tran in enumerate(trans):
-                    tran['advantage'] = tran['discounted_return'] - v_s[j]
+                for i, tran in enumerate(trans):
+                    tran['advantage'] = tran['discounted_return'] - v_s[i]
             else:
                 s, r, s_, done, max_reached = [np.array(e) for e in zip(*[(t['state'],
                                                                            t['reward'],
@@ -163,8 +163,8 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
                 v_s = ppo.get_v(s)
                 v_s_ = ppo.get_v(s_)
                 td_errors = r + config['gamma'] * v_s_ * (~(done ^ max_reached)) - v_s
-                for j, td_error in enumerate(td_errors):
-                    trans[j]['td_error'] = td_error
+                for i, td_error in enumerate(td_errors):
+                    trans[i]['td_error'] = td_error
 
                 td_error_tmp = 0
                 for tran in trans[::-1]:
@@ -193,13 +193,13 @@ def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: lis
                         is_good_tran = is_aux_tran = False
 
                 if is_good_tran:
-                    good_trans_all[i].append(tran)
+                    good_trans_all[agents_i].append(tran)
                 if is_aux_tran:
-                    aux_trans_all[i].append(tran)
+                    aux_trans_all[agents_i].append(tran)
 
-        return brain_info, trans_all, rewards_all, good_trans_all
+        return brain_info, trans_all, rewards_all, good_trans_all, aux_trans_all
     else:
-        return brain_info, None, rewards_all, None
+        return brain_info, None, rewards_all, None, None
 
 
 if config['build_path'] is None or config['build_path'] == '':
@@ -254,15 +254,15 @@ brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain
 for iteration in range(config['max_iter'] + 1):
     brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
 
-    brain_info, trans_all, rewards_all, good_trans_all = \
+    brain_info, trans_all, rewards_all, good_trans_all, aux_trans_all = \
         simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos)
 
-    for i, ppo in enumerate(ppos):
-        start, end = i * config['envs_num_per_agent'], (i + 1) * config['envs_num_per_agent']
+    for ppo_i, ppo in enumerate(ppos):
+        start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
         rewards = rewards_all[start:end]
         mean_reward = sum(rewards) / config['envs_num_per_agent']
 
-        print(f'ppo {i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
+        print(f'ppo {ppo_i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
 
         if TRAIN_MODE:
             ppo.write_constant_summaries([
@@ -276,32 +276,35 @@ for iteration in range(config['max_iter'] + 1):
                 trans_for_training += trans
 
             if config['mix']:
-                not_self_good_trans = list()
+                good_trans = list()
                 for t in good_trans_all[:start] + good_trans_all[end:]:
-                    not_self_good_trans += t
+                    good_trans += t
 
-                if len(not_self_good_trans) > 0:
+                if len(good_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in not_self_good_trans])]
+                                                     t['discounted_return']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    not_self_good_trans = [not_self_good_trans[i] for i, v in enumerate(bool_mask) if v]
+                    good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                not_self_aux_trans = list()
+                np.random.shuffle(good_trans)
+                good_trans = good_trans[:int(len(trans_for_training) / 3)]
+
+                aux_trans = list()
                 for t in aux_trans_all[:start] + aux_trans_all[end:]:
-                    not_self_aux_trans += t
+                    aux_trans += t
 
-                if len(not_self_aux_trans) > 0:
+                if len(aux_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in not_self_aux_trans])]
+                                                     t['discounted_return']) for t in aux_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    not_self_aux_trans = [not_self_aux_trans[i] for i, v in enumerate(bool_mask) if v]
+                    aux_trans = [aux_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                print(len(trans_for_training), len(not_self_good_trans), len(not_self_aux_trans))
-                trans_for_training = trans_for_training + not_self_good_trans + not_self_aux_trans
+                print(len(trans_for_training), len(good_trans), len(aux_trans))
+                trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
             s, a, adv, discounted_r = [np.array(e) for e in zip(*[(t['state'],

@@ -19,6 +19,7 @@ config = {
     'build_path': None,
     'port': 7000,
     'ppo': 'sep',
+    'lambda': 1,
     'gamma': 0.99,
     'max_iter': 2000,
     'agents_num': 1,
@@ -195,53 +196,81 @@ for iteration in range(config['max_iter'] + 1):
 
     good_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 6)]
 
-    for i in range(len(trans_all)):
-        for tran in trans_all[i]:
-            tran['discounted_return'] = 0
-
-    for i, ppo in enumerate(ppos):
-        start, end = i * config['envs_num_per_agent'], (i + 1) * config['envs_num_per_agent']
+    for ppo_i, ppo in enumerate(ppos):
+        start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
         trans_for_training = []
-        trans_not_self_for_training = []
-        trans_auxiliary_for_traning = []
-        for j in range(len(trans_all)):
-            trans = trans_all[j]
+        good_trans = []
+        aux_trans = []
+        for trans_i in range(len(trans_all)):
+            trans = trans_all[trans_i]
 
-            if trans[-1]['cumulative_reward'] >= good_cumulative_reward:
-                is_good_tran_not_terminal = True
-            else:
-                is_good_tran_not_terminal = False
-            is_good_tran = False
-
-            v_state_ = ppo.get_v(trans[-1]['state_'])
-
+            # compute discounted return
+            v_tmp = ppo.get_v(trans[-1]['state_'][np.newaxis, :])[0]
             for tran in trans[::-1]:
                 if tran['max_reached']:
-                    v_state_ = ppo.get_v(tran['state_'])
-                    is_good_tran_not_terminal = True
-                    is_good_tran = False
-                elif tran['local_done']:  # not max_reached but done
-                    v_state_ = 0
-                    is_good_tran_not_terminal = False
-                    if tran['cumulative_reward'] >= good_cumulative_reward:
-                        is_good_tran = True
-                    else:
-                        is_good_tran = False
-                v_state_ = tran['reward'] + config['gamma'] * v_state_
-                tran['discounted_return'] = v_state_
+                    v_tmp = ppo.get_v(tran['state_'][np.newaxis, :])[0]
+                elif tran['local_done']:
+                    v_tmp = 0
 
-                if start <= j < end:
-                    trans_for_training.append(tran)
+                v_tmp = tran['reward'] + config['gamma'] * v_tmp
+                tran['discounted_return'] = v_tmp
+
+            # compute advantage
+            if config['lambda'] == 1:
+                s = np.array([t['state'] for t in trans])
+                v_s = ppo.get_v(s)
+                for i, tran in enumerate(trans):
+                    tran['advantage'] = tran['discounted_return'] - v_s[i]
+            else:
+                s, r, s_, done, max_reached = [np.array(e) for e in zip(*[(t['state'],
+                                                                           t['reward'],
+                                                                           t['state_'],
+                                                                           [t['local_done']],
+                                                                           [t['max_reached']]) for t in trans])]
+                v_s = ppo.get_v(s)
+                v_s_ = ppo.get_v(s_)
+                td_errors = r + config['gamma'] * v_s_ * (~(done ^ max_reached)) - v_s
+                for j, td_error in enumerate(td_errors):
+                    trans[j]['td_error'] = td_error
+
+                td_error_tmp = 0
+                for tran in trans[::-1]:
+                    if tran['local_done']:
+                        td_error_tmp = 0
+
+                    td_error_tmp = tran['td_error'] + config['gamma'] * config['lambda'] * td_error_tmp
+                    tran['advantage'] = td_error_tmp
+
+            # compute good trans
+            if start <= trans_i < end:
+                trans_for_training += trans
+            else:
+                is_good_tran = False
+                if trans[-1]['cumulative_reward'] >= good_cumulative_reward:
+                    is_aux_tran = True
                 else:
+                    is_aux_tran = False
+
+                for tran in trans[::-1]:
+                    if tran['max_reached']:
+                        is_good_tran = True
+                        is_aux_tran = False
+                    elif tran['local_done']:
+                        if tran['cumulative_reward'] >= good_cumulative_reward:
+                            is_good_tran = False
+                            is_aux_tran = True
+                        else:
+                            is_good_tran = is_aux_tran = False
+
                     if is_good_tran:
-                        trans_not_self_for_training.append(tran)
-                    elif is_good_tran_not_terminal:
-                        trans_auxiliary_for_traning.append(tran)
+                        good_trans.append(tran)
+                    if is_aux_tran:
+                        aux_trans.append(tran)
 
         rewards = rewards_all[start:end]
         mean_reward = sum(rewards) / config['envs_num_per_agent']
 
-        print(f'ppo {i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
+        print(f'ppo {ppo_i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
 
         if TRAIN_MODE:
             ppo.write_constant_summaries([
@@ -251,42 +280,36 @@ for iteration in range(config['max_iter'] + 1):
             ], iteration)
 
             if config['mix']:
-                trans_not_self_for_training_filtered = []
-                if len(trans_not_self_for_training) > 0:
+                if len(good_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in trans_not_self_for_training])]
+                                                     t['discounted_return']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     # importance = np.squeeze(ppo.get_importance(s, discounted_r))
-                    for j, tran in enumerate(trans_not_self_for_training):
-                        if bool_mask[j]:
-                            trans_not_self_for_training_filtered.append(tran)
+                    good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                trans_auxiliary_for_traning_filtered = []
-                if len(trans_auxiliary_for_traning) > 0:
+                np.random.shuffle(good_trans)
+                good_trans = good_trans[:int(len(trans_for_training) / 3)]
+
+                if len(aux_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in trans_auxiliary_for_traning])]
+                                                     t['discounted_return']) for t in aux_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    importance = np.squeeze(ppo.get_importance(s, discounted_r))
-                    for j, tran in enumerate(trans_auxiliary_for_traning):
-                        if bool_mask[j] and importance[j] > 3:
-                            trans_auxiliary_for_traning_filtered.append(tran)
+                    # importance = np.squeeze(ppo.get_importance(s, discounted_r))
+                    aux_trans = [aux_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                np.random.shuffle(trans_auxiliary_for_traning_filtered)
-                trans_auxiliary_for_traning_filtered = trans_auxiliary_for_traning_filtered[:int(len(trans_auxiliary_for_traning_filtered) / 3)]
-                print(len(trans_for_training), len(trans_not_self_for_training_filtered), len(trans_auxiliary_for_traning_filtered))
-                trans_for_training = trans_for_training + trans_not_self_for_training_filtered + trans_auxiliary_for_traning_filtered
-
+                print(len(trans_for_training), len(good_trans), len(aux_trans))
+                trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
-            s, a, discounted_r = \
-                [np.array(e) for e in zip(*[(t['state'],
-                                             t['action'],
-                                             t['discounted_return']) for t in trans_for_training])]
-            ppo.train(s, a, discounted_r, iteration)
+            s, a, adv, discounted_r = [np.array(e) for e in zip(*[(t['state'],
+                                                                   t['action'],
+                                                                   t['advantage'],
+                                                                   t['discounted_return']) for t in trans_for_training])]
+            ppo.train(s, a, adv, discounted_r, iteration)
 
     print('=' * 20)
 
