@@ -117,5 +117,6 @@ dmypy.json
 .vscode
 log
 model
+config
 tensorboard_log
 tensorflow_model

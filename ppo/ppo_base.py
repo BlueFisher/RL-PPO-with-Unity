@@ -1,6 +1,5 @@
 import time
 import collections
-import os
 import sys
 
 import numpy as np
@@ -28,10 +27,10 @@ class PPO_Base(object):
                  seed=None,
                  batch_size=2048,
                  variance_bound=1.,
-                 c1=1,
-                 c2=0.001,  # entropy coefficient
-                 epsilon=0.2,  # clip epsilon
-                 combine_loss=False,
+                 addition_objective=False,
+                 beta=0.001,  # entropy coefficient
+                 epsilon=0.2,  # clip bound
+                 combine_ratio=1,
                  init_lr=0.00005,
                  decay_steps=50,
                  decay_rate=0.9,
@@ -54,7 +53,7 @@ class PPO_Base(object):
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(c1, c2, epsilon, combine_loss, init_lr, decay_steps, decay_rate)
+            self._build_model(addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -70,7 +69,7 @@ class PPO_Base(object):
 
         self.variables_cached_deque = collections.deque(maxlen=10)
 
-    def _build_model(self, c1, c2, epsilon, combine_loss, init_lr, decay_steps, decay_rate):
+    def _build_model(self, addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
         old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
@@ -79,13 +78,20 @@ class PPO_Base(object):
             self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
             self.pl_advantage = tf.placeholder(tf.float32, shape=(None, 1), name='advantage')
             self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
-            ratio = policy.prob(self.pl_a) / old_policy.prob(self.pl_a)
-            self.policy_prob = policy.prob(self.pl_a)
 
-            L_clip = tf.math.reduce_mean(tf.math.minimum(
-                ratio * self.pl_advantage,  # surrogate objective
-                tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * self.pl_advantage
-            ), name='clipped_objective')
+            self.policy_prob = policy.prob(self.pl_a)
+            if addition_objective:
+                ratio = self.policy_prob - old_policy.prob(self.pl_a)
+                L_clip = tf.math.reduce_mean(tf.math.minimum(
+                    ratio * self.pl_advantage,  # surrogate objective
+                    tf.clip_by_value(ratio, -epsilon, epsilon) * self.pl_advantage
+                ), name='clipped_objective')
+            else:
+                ratio = self.policy_prob / old_policy.prob(self.pl_a)
+                L_clip = tf.math.reduce_mean(tf.math.minimum(
+                    ratio * self.pl_advantage,  # surrogate objective
+                    tf.clip_by_value(ratio, 1. - epsilon, 1. + epsilon) * self.pl_advantage
+                ), name='clipped_objective')
 
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
             S = tf.reduce_mean(policy.entropy(), name='entropy')
@@ -99,11 +105,11 @@ class PPO_Base(object):
                                                  decay_steps=decay_steps,
                                                  decay_rate=decay_rate,
                                                  staircase=True)
-            if combine_loss:
-                L = L_clip - c1 * L_vf + c2 * S
+            if combine_ratio > 0:
+                L = L_clip - combine_ratio * L_vf + beta * S
                 self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
             else:
-                L = L_clip + c2 * S
+                L = L_clip + beta * S
                 self.train_op = [tf.train.AdamOptimizer(self.lr).minimize(-L),
                                  tf.train.AdamOptimizer(self.lr).minimize(L_vf)]
 
@@ -112,10 +118,8 @@ class PPO_Base(object):
 
         self.variables_cachable = [v for v in tf.global_variables() if v != self.lr]
 
-        tf.summary.scalar('loss/-clipped_objective', L_clip)
         tf.summary.scalar('loss/value_function', L_vf)
         tf.summary.scalar('loss/-entropy', S)
-        tf.summary.scalar('loss/-mixed_objective', L)
         tf.summary.scalar('loss/lr', self.lr)
         self.summaries = tf.summary.merge_all()
 
@@ -190,7 +194,7 @@ class PPO_Base(object):
             self.pl_s: s,
             self.pl_a: a
         })
-        bool_mask = ~np.any(policy_prob <= 1.e-5, axis=1)
+        bool_mask = ~np.any(policy_prob <= 1.e-7, axis=1)
         return bool_mask
 
     def train(self, s, a, adv, discounted_r, iteration):

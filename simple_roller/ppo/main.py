@@ -2,7 +2,9 @@ import sys
 import getopt
 import time
 import random
+import os
 import yaml
+from functools import reduce
 
 import numpy as np
 import tensorflow as tf
@@ -25,7 +27,8 @@ config = {
     'agents_num': 1,
     'envs_num_per_agent': 1,
     'seed_increment': None,
-    'mix': True
+    'mix': True,
+    'addition_objective': False
 }
 agent_config = dict()
 
@@ -72,6 +75,10 @@ for opt, arg in opts:
     elif opt == '--no_mix':
         config['mix'] = False
 
+if not os.path.exists('config'):
+    os.makedirs('config')
+with open(f'config/{config["name"]}.yaml', 'w') as f:
+    yaml.dump({**config, **agent_config}, f, default_flow_style=False)
 
 for k, v in config.items():
     print(f'{k:>25}: {v}')
@@ -80,132 +87,160 @@ for k, v in agent_config.items():
 print('=' * 20)
 
 
-def simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos: list):
-    len_agents = len(brain_info.agents)
-    dones = [False] * len_agents
-    cumulative_rewards_list = list()
-    curr_cumulative_rewards_all = [0] * len_agents
-    trans_all = [[] for _ in range(len_agents)]
-    good_trans_all = [[] for _ in range(len_agents)]
-    aux_trans_all = [[] for _ in range(len_agents)]
-    rewards_all = [0] * len_agents
-    hitted_real_all = [0] * len_agents
-    hitted_all = [0] * len_agents
+class Agent(object):
+    def __init__(self, agent_id):
+        self.agent_id = agent_id
+        self.ppo = None
+        self.done = False
+        self._curr_cumulative_reward = 0
+        self._tmp_trans = list()
+        self.trajectories = list()
+        self.good_trajectories = list()
+        self.aux_trajectories = list()
+        self.reward = 0
+        self.hitted_real = 0
+        self.hitted = 0
 
-    states = brain_info.vector_observations
-    while False in dones and not env.global_done:
-        actions = np.zeros((len_agents, action_dim))
-        for i, ppo in enumerate(ppos):
-            actions[i * config['envs_num_per_agent']:(i + 1) * config['envs_num_per_agent']] \
-                = ppo.choose_action(states[i * config['envs_num_per_agent']:(i + 1) * config['envs_num_per_agent']])
+    def add_transition(self,
+                       state,
+                       action,
+                       reward,
+                       local_done,
+                       max_reached,
+                       state_):
+        self._curr_cumulative_reward += reward
+        self._tmp_trans.append({
+            'state': state,
+            'action': action,
+            'reward': np.array([reward]),
+            'local_done': local_done,
+            'max_reached': max_reached,
+            'state_': state_,
+            'cumulative_reward': self._curr_cumulative_reward
+        })
 
-        brain_info = env.step({
-            default_brain_name: actions
-        })[default_brain_name]
-        rewards = brain_info.rewards
-        local_dones = brain_info.local_done
-        max_reached = brain_info.max_reached
-        states_ = brain_info.vector_observations
+        if not self.done:
+            self.reward += reward
+            if reward >= 1:
+                self.hitted_real += 1
+        if reward >= 1:
+            self.hitted += 1
 
-        for i in range(len_agents):
-            if TRAIN_MODE:
-                curr_cumulative_rewards_all[i] += rewards[i]
-                trans_all[i].append({
-                    'state': states[i],
-                    'action': actions[i],
-                    'reward': np.array([rewards[i]]),
-                    'local_done': local_dones[i],
-                    'max_reached': max_reached[i],
-                    'state_': states_[i],
-                    'cumulative_reward': curr_cumulative_rewards_all[i]
-                })
-            if not dones[i]:
-                rewards_all[i] += rewards[i]
-                if rewards[i] >= 1:
-                    hitted_real_all[i] += 1
-            if rewards[i] >= 1:
-                hitted_all[i] += 1
+        if local_done:
+            self.done = True
+            self.fill_reset_tmp_trans()
 
-            if local_dones[i]:
-                cumulative_rewards_list.append(curr_cumulative_rewards_all[i])
-                curr_cumulative_rewards_all[i] = 0
+    def fill_reset_tmp_trans(self):
+        self.trajectories.append(self._tmp_trans)
+        self._curr_cumulative_reward = 0
+        self._tmp_trans = list()
 
-            dones[i] = dones[i] or local_dones[i]
-        states = states_
+    def get_cumulative_rewards(self):
+        return [t[-1]['cumulative_reward'] for t in self.trajectories]
 
-    if TRAIN_MODE:
-        cumulative_rewards_list.sort()
-        good_cumulative_reward = cumulative_rewards_list[-int(len(cumulative_rewards_list) / 3)]
+    def get_trans_combined(self):
+        return [] if len(self.trajectories) == 0 else \
+            reduce(lambda x, y: x + y, self.trajectories)
 
-        for i in range(len_agents):
-            ppo = ppos[int(i / config['envs_num_per_agent'])]
-            trans = trans_all[i]
+    def get_good_trans_combined(self):
+        return [] if len(self.good_trajectories) == 0 else \
+            reduce(lambda x, y: x + y, self.good_trajectories)
 
-            # compute discounted return
-            v_tmp = ppo.get_v(trans[-1]['state_'][np.newaxis, :])[0]
+    def get_aux_trans_combined(self):
+        return [] if len(self.aux_trajectories) == 0 else \
+            reduce(lambda x, y: x + y, self.aux_trajectories)
+
+    def compute_discounted_return(self):
+        for trans in self.trajectories:
+            if (not trans[-1]['max_reached']) and trans[-1]['local_done']:
+                v_tmp = 0
+            else:
+                v_tmp = self.ppo.get_v(trans[-1]['state_'][np.newaxis, :])[0]
             for tran in trans[::-1]:
-                if tran['max_reached']:
-                    v_tmp = ppo.get_v(tran['state_'][np.newaxis, :])[0]
-                elif tran['local_done']:
-                    v_tmp = 0
-
                 v_tmp = tran['reward'] + config['gamma'] * v_tmp
                 tran['discounted_return'] = v_tmp
 
-            # compute advantage
+    def compute_advantage(self):
+        for trans in self.trajectories:
             if config['lambda'] == 1:
                 s = np.array([t['state'] for t in trans])
-                v_s = ppo.get_v(s)
-                for j, tran in enumerate(trans):
-                    tran['advantage'] = tran['discounted_return'] - v_s[j]
+                v_s = self.ppo.get_v(s)
+                for i, tran in enumerate(trans):
+                    tran['advantage'] = tran['discounted_return'] - v_s[i]
             else:
                 s, r, s_, done, max_reached = [np.array(e) for e in zip(*[(t['state'],
                                                                            t['reward'],
                                                                            t['state_'],
                                                                            [t['local_done']],
                                                                            [t['max_reached']]) for t in trans])]
-                v_s = ppo.get_v(s)
-                v_s_ = ppo.get_v(s_)
+                v_s = self.ppo.get_v(s)
+                v_s_ = self.ppo.get_v(s_)
                 td_errors = r + config['gamma'] * v_s_ * (~(done ^ max_reached)) - v_s
-                for j, td_error in enumerate(td_errors):
-                    trans[j]['td_error'] = td_error
+                for i, td_error in enumerate(td_errors):
+                    trans[i]['td_error'] = td_error
 
                 td_error_tmp = 0
                 for tran in trans[::-1]:
-                    if tran['local_done']:
-                        td_error_tmp = 0
-
                     td_error_tmp = tran['td_error'] + config['gamma'] * config['lambda'] * td_error_tmp
                     tran['advantage'] = td_error_tmp
 
-            # compute good trans
-            is_good_tran = False
-            if trans[-1]['cumulative_reward'] >= good_cumulative_reward:
-                is_aux_tran = True
-            else:
-                is_aux_tran = False
+    def compute_good_trans(self, aux_cumulative_reward):
+        for trans in self.trajectories:
+            if trans[-1]['local_done']:
+                if trans[-1]['reward'] >= 1:
+                    self.good_trajectories.append(trans)
+                elif trans[-1]['cumulative_reward'] >= aux_cumulative_reward:
+                    self.aux_trajectories.append(trans)
 
-            for tran in trans[::-1]:
-                if tran['max_reached']:
-                    is_good_tran = is_aux_tran = False
-                elif tran['local_done']:
-                    if tran['reward'] >= 1:
-                        is_good_tran = True
-                        is_aux_tran = False
-                    elif tran['cumulative_reward'] >= good_cumulative_reward:
-                        is_good_tran = False
-                        is_aux_tran = True
-                    else:
-                        is_good_tran = is_aux_tran = False
 
-                if is_good_tran:
-                    good_trans_all[i].append(tran)
-                if is_aux_tran:
-                    aux_trans_all[i].append(tran)
+def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
+    agents = [Agent(i) for i in brain_info.agents]
+    for i, agent in enumerate(agents):
+        ppo = ppos[int(i / config['envs_num_per_agent'])]
+        agent.ppo = ppo
 
-        return brain_info, trans_all, rewards_all, hitted_all, hitted_real_all, good_trans_all, aux_trans_all
-    else:
-        return brain_info, None, rewards_all, hitted_all, hitted_real_all, None, None
+    states = brain_info.vector_observations
+    while False in [a.done for a in agents] and not env.global_done:
+        actions = []
+        for i, agent in enumerate(agents):
+            action = agent.ppo.choose_action(states[i][np.newaxis, :])[0]
+            actions.append(action)
+
+        brain_info = env.step({
+            default_brain_name: np.array(actions)
+        })[default_brain_name]
+        rewards = brain_info.rewards
+        local_dones = brain_info.local_done
+        max_reached = brain_info.max_reached
+        states_ = brain_info.vector_observations
+
+        for i, agent in enumerate(agents):
+            agent.add_transition(states[i],
+                                 actions[i],
+                                 rewards[i],
+                                 local_dones[i],
+                                 max_reached[i],
+                                 states_[i])
+
+        states = states_
+    # # fill reset not done transitions
+    # for agent in agents:
+    #     agent.fill_reset_tmp_trans()
+
+    if TRAIN_MODE:
+        cumulative_rewards = list()
+        for agent in agents:
+            cumulative_rewards += agent.get_cumulative_rewards()
+        cumulative_rewards.sort()
+        aux_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 6)]
+
+        for agent in agents:
+            agent.compute_discounted_return()
+            agent.compute_advantage()
+            if config['mix']:
+                agent.compute_good_trans(aux_cumulative_reward)
+
+    return brain_info, agents
 
 
 if config['build_path'] is None or config['build_path'] == '':
@@ -223,6 +258,7 @@ state_dim = brain_params.vector_observation_space_size
 action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
+
 ppos = []
 for i in range(config['agents_num']):
     if config['agents_num'] > 1:
@@ -237,10 +273,10 @@ for i in range(config['agents_num']):
 
     if config['ppo'] == 'sep':
         PPO = PPO_SEP
-        combine_loss = False
+        combine_ratio = 0
     elif config['ppo'] == 'std':
         PPO = PPO_STD
-        combine_loss = True
+        combine_ratio = 1
     else:
         raise Exception(f'PPO name {config["ppo"]} is in correct')
 
@@ -252,7 +288,8 @@ for i in range(config['agents_num']):
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
                     seed=seed,
-                    combine_loss=combine_loss,
+                    combine_ratio=combine_ratio,
+                    addition_objective=config['addition_objective'],
                     **agent_config))
 
 reset_config = {
@@ -264,17 +301,19 @@ for iteration in range(config['max_iter'] + 1):
     if env.global_done:
         brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
 
-    brain_info, trans_all, rewards_all, hitted_all, hitted_real_all, good_trans_all, aux_trans_all =\
-        simulate_multippo(env, brain_info, default_brain_name, action_dim, ppos)
+    brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
 
-    for i, ppo in enumerate(ppos):
-        start, end = i * config['envs_num_per_agent'], (i + 1) * config['envs_num_per_agent']
-        rewards = rewards_all[start:end]
-        mean_reward = sum(rewards) / config['envs_num_per_agent']
-        hitted = sum(hitted_all[start:end])
-        hitted_real = sum(hitted_real_all[start:end])
+    for ppo_i, ppo in enumerate(ppos):
+        start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
+        avil_agents = agents[start:end]
+        unavil_agents = agents[:start] + agents[end:]
 
-        print(f'ppo {i}, iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}, hitted_real {hitted_real}')
+        rewards = [a.reward for a in avil_agents]
+        mean_reward = sum(rewards) / len(rewards)
+        hitted = sum([a.hitted for a in avil_agents])
+        hitted_real = sum([a.hitted_real for a in avil_agents])
+
+        print(f'ppo {ppo_i}, iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}, hitted_real {hitted_real}')
 
         if TRAIN_MODE:
             ppo.write_constant_summaries([
@@ -286,35 +325,36 @@ for iteration in range(config['max_iter'] + 1):
             ], iteration)
 
             trans_for_training = list()
-            for trans in trans_all[start:end]:
-                trans_for_training += trans
+            for t in [a.get_trans_combined() for a in avil_agents]:
+                trans_for_training += t
 
             if config['mix']:
-                not_self_good_trans = list()
-                for t in good_trans_all[:start] + good_trans_all[end:]:
-                    not_self_good_trans += t
+                good_trans = list()
+                for t in [a.get_good_trans_combined() for a in unavil_agents]:
+                    good_trans += t
 
-                if len(not_self_good_trans) > 0:
+                if not config['addition_objective'] and len(good_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in not_self_good_trans])]
+                                                     t['discounted_return']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    not_self_good_trans = [not_self_good_trans[i] for i, v in enumerate(bool_mask) if v]
+                    good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                not_self_aux_trans = list()
-                for t in aux_trans_all[:start] + aux_trans_all[end:]:
-                    not_self_aux_trans += t
+                aux_trans = list()
+                for t in [a.get_aux_trans_combined() for a in unavil_agents]:
+                    aux_trans += t
 
-                if len(not_self_aux_trans) > 0:
+                if not config['addition_objective'] and len(aux_trans) > 0:
                     s, a, discounted_r =\
                         [np.array(e) for e in zip(*[(t['state'],
                                                      t['action'],
-                                                     t['discounted_return']) for t in not_self_aux_trans])]
+                                                     t['discounted_return']) for t in aux_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
-                    not_self_aux_trans = [not_self_aux_trans[i] for i, v in enumerate(bool_mask) if v]
+                    aux_trans = [aux_trans[i] for i, v in enumerate(bool_mask) if v]
 
-                trans_for_training = trans_for_training + not_self_good_trans + not_self_aux_trans
+                print(len(trans_for_training), len(good_trans), len(aux_trans))
+                trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
             s, a, adv, discounted_r = [np.array(e) for e in zip(*[(t['state'],
