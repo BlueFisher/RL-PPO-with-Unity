@@ -71,7 +71,7 @@ class PPO_Base(object):
 
     def _build_model(self, addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
-        policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
+        self.policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
         old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
 
         with tf.name_scope('objective_and_value_function_loss'):
@@ -79,7 +79,7 @@ class PPO_Base(object):
             self.pl_advantage = tf.placeholder(tf.float32, shape=(None, 1), name='advantage')
             self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
 
-            self.policy_prob = policy.prob(self.pl_a)
+            self.policy_prob = self.policy.prob(self.pl_a)
             if addition_objective:
                 ratio = self.policy_prob - old_policy.prob(self.pl_a)
                 L_clip = tf.math.reduce_mean(tf.math.minimum(
@@ -94,9 +94,9 @@ class PPO_Base(object):
                 ), name='clipped_objective')
 
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
-            S = tf.reduce_mean(policy.entropy(), name='entropy')
+            S = tf.reduce_mean(self.policy.entropy(), name='entropy')
 
-        self.choose_action_op = tf.squeeze(policy.sample(1), axis=0)
+        self.choose_action_op = tf.squeeze(self.policy.sample(1), axis=0)
 
         with tf.name_scope('optimizer'):
             self.global_iter = tf.get_variable('global_iter', shape=(), initializer=tf.constant_initializer(0), trainable=False)
@@ -168,8 +168,18 @@ class PPO_Base(object):
         if np.isnan(np.min(a)):
             print('WARNING! NAN IN ACTIONS')
             self._restore_variables_cachable()
+            a = self.sess.run(self.choose_action_op, {
+                self.pl_s: s
+            })
 
         return np.clip(a, -self.a_bound, self.a_bound)
+
+    def get_policy(self, s):
+        assert len(s.shape) == 2
+
+        return self.sess.run([self.policy.loc, self.policy.scale], {
+            self.pl_s: s
+        })
 
     def _restore_variables_cachable(self):
         variables = self.variables_cached_deque[0]

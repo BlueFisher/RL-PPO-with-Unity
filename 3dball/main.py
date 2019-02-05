@@ -296,12 +296,23 @@ for iteration in range(config['max_iter'] + 1):
     brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
 
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
+    if TRAIN_MODE and config['mix']:
+        test_states = brain_info.vector_observations
+        mu = list()
+        sigma = list()
+        for ppo in ppos:
+            _mu, _sigma = ppo.get_policy(test_states)
+            mu.append(_mu.reshape(-1))
+            sigma.append(_sigma.reshape(-1))
+
+        mu_var = np.mean(np.var(mu, axis=0))
+        sigma_var = np.mean(np.var(sigma, axis=0))
 
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
         avil_agents = agents[start:end]
         unavil_agents = agents[:start] + agents[end:]
-        
+
         rewards = [a.reward for a in avil_agents]
         mean_reward = sum(rewards) / len(rewards)
 
@@ -313,6 +324,12 @@ for iteration in range(config['max_iter'] + 1):
                 {'tag': 'reward/max', 'simple_value': max(rewards)},
                 {'tag': 'reward/min', 'simple_value': min(rewards)}
             ], iteration)
+
+            if config['mix']:
+                ppo.write_constant_summaries([
+                    {'tag': 'mixed_var/mu', 'simple_value': mu_var},
+                    {'tag': 'mixed_var/sigma', 'simple_value': sigma_var}
+                ], iteration)
 
             trans_for_training = list()
             for t in [a.get_trans_combined() for a in avil_agents]:
@@ -330,6 +347,9 @@ for iteration in range(config['max_iter'] + 1):
                                                      t['discounted_return']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
+
+                np.random.shuffle(good_trans)
+                good_trans = good_trans[:len(trans_for_training)]
 
                 aux_trans = list()
                 for t in [a.get_aux_trans_combined() for a in unavil_agents]:

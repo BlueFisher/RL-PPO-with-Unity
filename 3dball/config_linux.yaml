@@ -2,4 +2,4 @@ build_path: /data/build-linux-3dball/rl-test.x86_64
 write_summary_graph: true
 seed_increment: 200
 decay_steps: 50
-decay_rate: 0.9
+decay_rate: 0.7
