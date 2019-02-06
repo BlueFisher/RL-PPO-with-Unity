@@ -1,0 +1,6 @@
+#build_path: C:\Users\Fisher\Documents\Unity\build-obstacle-roller-large\rl-test.exe
+build_path: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
+write_summary_graph: true
+seed_increment: 1
+decay_steps: 70
+decay_rate: 0.7

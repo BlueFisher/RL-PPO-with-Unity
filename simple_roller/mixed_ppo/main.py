@@ -9,9 +9,9 @@ from functools import reduce
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
+sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball import PPO_SEP, PPO_STD
+from ppo_mixed import Mixed_PPO
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -186,10 +186,11 @@ class Agent(object):
 
     def compute_good_trans(self, aux_cumulative_reward):
         for trans in self.trajectories:
-            if trans[-1]['max_reached']:
-                self.good_trajectories.append(trans)
-            elif trans[-1]['cumulative_reward'] >= aux_cumulative_reward:
-                self.aux_trajectories.append(trans)
+            if trans[-1]['local_done']:
+                if trans[-1]['reward'] >= 1:
+                    self.good_trajectories.append(trans)
+                elif trans[-1]['cumulative_reward'] >= aux_cumulative_reward:
+                    self.aux_trajectories.append(trans)
 
 
 def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
@@ -222,6 +223,9 @@ def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
                                  states_[i])
 
         states = states_
+    # # fill reset not done transitions
+    # for agent in agents:
+    #     agent.fill_reset_tmp_trans()
 
     if TRAIN_MODE:
         cumulative_rewards = list()
@@ -254,6 +258,7 @@ state_dim = brain_params.vector_observation_space_size
 action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
+
 ppos = []
 for i in range(config['agents_num']):
     if config['agents_num'] > 1:
@@ -267,11 +272,11 @@ for i in range(config['agents_num']):
         seed = i + config['seed_increment']
 
     if config['ppo'] == 'sep':
-        PPO = PPO_SEP
+        PPO = Mixed_PPO
         combine_ratio = 0
-    elif config['ppo'] == 'std':
-        PPO = PPO_STD
-        combine_ratio = 1
+    # elif config['ppo'] == 'std':
+    #     PPO = PPO_STD
+    #     combine_ratio = 1
     else:
         raise Exception(f'PPO name {config["ppo"]} is in correct')
 
@@ -293,20 +298,10 @@ reset_config = {
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
 for iteration in range(config['max_iter'] + 1):
-    brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
+    if env.global_done:
+        brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
 
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
-    if TRAIN_MODE:
-        test_states = brain_info.vector_observations
-        mu = list()
-        sigma = list()
-        for ppo in ppos:
-            _mu, _sigma = ppo.get_policy(test_states)
-            mu.append(_mu.reshape(-1))
-            sigma.append(_sigma.reshape(-1))
-
-        mu_var = np.mean(np.var(mu, axis=0))
-        sigma_var = np.mean(np.var(sigma, axis=0))
 
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
@@ -315,16 +310,18 @@ for iteration in range(config['max_iter'] + 1):
 
         rewards = [a.reward for a in avil_agents]
         mean_reward = sum(rewards) / len(rewards)
+        hitted = sum([a.hitted for a in avil_agents])
+        hitted_real = sum([a.hitted_real for a in avil_agents])
 
-        print(f'ppo {ppo_i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
+        print(f'ppo {ppo_i}, iter {iteration}, rewards {mean_reward:.2f}, hitted {hitted}, hitted_real {hitted_real}')
 
         if TRAIN_MODE:
             ppo.write_constant_summaries([
                 {'tag': 'reward/mean', 'simple_value': mean_reward},
                 {'tag': 'reward/max', 'simple_value': max(rewards)},
                 {'tag': 'reward/min', 'simple_value': min(rewards)},
-                {'tag': 'mixed_var/mu', 'simple_value': mu_var},
-                {'tag': 'mixed_var/sigma', 'simple_value': sigma_var}
+                {'tag': 'reward/hitted', 'simple_value': hitted},
+                {'tag': 'reward/hitted_real', 'simple_value': hitted_real}
             ], iteration)
 
             trans_for_training = list()
@@ -343,9 +340,6 @@ for iteration in range(config['max_iter'] + 1):
                                                      t['discounted_return']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
-
-                np.random.shuffle(good_trans)
-                good_trans = good_trans[:int(len(trans_for_training) / 3)]
 
                 aux_trans = list()
                 for t in [a.get_aux_trans_combined() for a in unavil_agents]:

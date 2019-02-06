@@ -9,9 +9,9 @@ from functools import reduce
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
+sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball import PPO_SEP, PPO_STD
+from ppo_mixed import Mixed_PPO
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -267,11 +267,11 @@ for i in range(config['agents_num']):
         seed = i + config['seed_increment']
 
     if config['ppo'] == 'sep':
-        PPO = PPO_SEP
+        PPO = Mixed_PPO
         combine_ratio = 0
-    elif config['ppo'] == 'std':
-        PPO = PPO_STD
-        combine_ratio = 1
+    # elif config['ppo'] == 'std':
+    #     PPO = PPO_STD
+    #     combine_ratio = 1
     else:
         raise Exception(f'PPO name {config["ppo"]} is in correct')
 
