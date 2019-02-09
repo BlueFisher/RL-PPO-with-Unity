@@ -9,9 +9,9 @@ from functools import reduce
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
+sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
-from ppo_3dball import PPO_SEP, PPO_STD
+from ppo_sep_critic_3dball import PPO, Critic
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -20,17 +20,17 @@ config = {
     'name': NOW,
     'build_path': None,
     'port': 7000,
-    'ppo': 'sep',
     'lambda': 1,
     'gamma': 0.99,
     'max_iter': 2000,
-    'agents_num': 1,
-    'envs_num_per_agent': 1,
+    'policies_num': 1,
+    'agents_num_p_policy': 1,
     'seed_increment': None,
     'mix': True,
     'addition_objective': False
 }
 agent_config = dict()
+critic_config = dict()
 
 try:
     opts, args = getopt.getopt(sys.argv[1:], 'rc:n:b:p:', ['run',
@@ -38,9 +38,8 @@ try:
                                                            'name=',
                                                            'build=',
                                                            'port=',
-                                                           'ppo=',
+                                                           'policies=',
                                                            'agents=',
-                                                           'envs=',
                                                            'no_mix'])
 except getopt.GetoptError:
     raise Exception('ARGS ERROR')
@@ -51,9 +50,16 @@ for opt, arg in opts:
             config_file = yaml.load(f)
             for k, v in config_file.items():
                 if k in config.keys():
-                    config[k] = v
+                    if k == 'build_path':
+                        config['build_path'] = v[sys.platform]
+                    else:
+                        config[k] = v
                 else:
-                    agent_config[k] = v
+                    if k == 'critic':
+                        for kk, vv in v.items():
+                            critic_config[kk] = vv
+                    else:
+                        agent_config[k] = v
         break
 
 for opt, arg in opts:
@@ -65,12 +71,10 @@ for opt, arg in opts:
         config['build_path'] = arg
     elif opt in ('-p', '--port'):
         config['port'] = int(arg)
-    elif opt == '--ppo':
-        config['ppo'] = arg
+    elif opt == '--policies':
+        config['policies_num'] = int(arg)
     elif opt == '--agents':
-        config['agents_num'] = int(arg)
-    elif opt == '--envs':
-        config['envs_num_per_agent'] = int(arg)
+        config['agents_num_p_policy'] = int(arg)
 
     elif opt == '--no_mix':
         config['mix'] = False
@@ -82,7 +86,11 @@ with open(f'config/{config["name"]}.yaml', 'w') as f:
 
 for k, v in config.items():
     print(f'{k:>25}: {v}')
+print('agent_config:')
 for k, v in agent_config.items():
+    print(f'{k:>25}: {v}')
+print('critic_config:')
+for k, v in critic_config.items():
     print(f'{k:>25}: {v}')
 print('=' * 20)
 
@@ -90,6 +98,7 @@ print('=' * 20)
 class Agent(object):
     def __init__(self, agent_id):
         self.agent_id = agent_id
+        self.critic = None
         self.ppo = None
         self.done = False
         self._curr_cumulative_reward = 0
@@ -98,8 +107,6 @@ class Agent(object):
         self.good_trajectories = list()
         self.aux_trajectories = list()
         self.reward = 0
-        self.hitted_real = 0
-        self.hitted = 0
 
     def add_transition(self,
                        state,
@@ -121,10 +128,6 @@ class Agent(object):
 
         if not self.done:
             self.reward += reward
-            if reward >= 1:
-                self.hitted_real += 1
-        if reward >= 1:
-            self.hitted += 1
 
         if local_done:
             self.done = True
@@ -155,7 +158,7 @@ class Agent(object):
             if (not trans[-1]['max_reached']) and trans[-1]['local_done']:
                 v_tmp = 0
             else:
-                v_tmp = self.ppo.get_v(trans[-1]['state_'][np.newaxis, :])[0]
+                v_tmp = self.critic.get_v(trans[-1]['state_'][np.newaxis, :])[0]
             for tran in trans[::-1]:
                 v_tmp = tran['reward'] + config['gamma'] * v_tmp
                 tran['discounted_return'] = v_tmp
@@ -164,7 +167,7 @@ class Agent(object):
         for trans in self.trajectories:
             if config['lambda'] == 1:
                 s = np.array([t['state'] for t in trans])
-                v_s = self.ppo.get_v(s)
+                v_s = self.critic.get_v(s)
                 for i, tran in enumerate(trans):
                     tran['advantage'] = tran['discounted_return'] - v_s[i]
             else:
@@ -173,8 +176,8 @@ class Agent(object):
                                                                            t['state_'],
                                                                            [t['local_done']],
                                                                            [t['max_reached']]) for t in trans])]
-                v_s = self.ppo.get_v(s)
-                v_s_ = self.ppo.get_v(s_)
+                v_s = self.critic.get_v(s)
+                v_s_ = self.critic.get_v(s_)
                 td_errors = r + config['gamma'] * v_s_ * (~(done ^ max_reached)) - v_s
                 for i, td_error in enumerate(td_errors):
                     trans[i]['td_error'] = td_error
@@ -195,8 +198,8 @@ class Agent(object):
 def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
     agents = [Agent(i) for i in brain_info.agents]
     for i, agent in enumerate(agents):
-        ppo = ppos[int(i / config['envs_num_per_agent'])]
-        agent.ppo = ppo
+        agent.critic = critic
+        agent.ppo = ppos[int(i / config['agents_num_p_policy'])]
 
     states = brain_info.vector_observations
     while False in [a.done for a in agents] and not env.global_done:
@@ -255,8 +258,8 @@ action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 ppos = []
-for i in range(config['agents_num']):
-    if config['agents_num'] > 1:
+for i in range(config['policies_num']):
+    if config['policies_num'] > 1:
         name = f'{config["name"]}/{i}'
     else:
         name = config['name']
@@ -266,15 +269,6 @@ for i in range(config['agents_num']):
     else:
         seed = i + config['seed_increment']
 
-    if config['ppo'] == 'sep':
-        PPO = PPO_SEP
-        combine_ratio = 0
-    elif config['ppo'] == 'std':
-        PPO = PPO_STD
-        combine_ratio = 1
-    else:
-        raise Exception(f'PPO name {config["ppo"]} is in correct')
-
     print('=' * 10, name, '=' * 10)
     ppos.append(PPO(state_dim=state_dim,
                     action_dim=action_dim,
@@ -283,12 +277,19 @@ for i in range(config['agents_num']):
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
                     seed=seed,
-                    combine_ratio=combine_ratio,
                     addition_objective=config['addition_objective'],
                     **agent_config))
 
+print('=' * 10, 'critic', '=' * 10)
+critic = Critic(state_dim=state_dim,
+                saver_model_path=f'model/{config["name"]}',
+                summary_path='log' if TRAIN_MODE else None,
+                summary_name=config['name'],
+                seed=seed,
+                **critic_config)
+
 reset_config = {
-    'copy': config['envs_num_per_agent'] * config['agents_num']
+    'copy': config['agents_num_p_policy'] * config['policies_num']
 }
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
@@ -296,24 +297,14 @@ for iteration in range(config['max_iter'] + 1):
     brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
 
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
-    if TRAIN_MODE:
-        test_states = brain_info.vector_observations
-        mu = list()
-        sigma = list()
-        for ppo in ppos:
-            _mu, _sigma = ppo.get_policy(test_states)
-            mu.append(_mu.reshape(-1))
-            sigma.append(_sigma.reshape(-1))
 
-        mu_var = np.mean(np.var(mu, axis=0))
-        sigma_var = np.mean(np.var(sigma, axis=0))
-
+    trans_for_critic_training = list()
     for ppo_i, ppo in enumerate(ppos):
-        start, end = ppo_i * config['envs_num_per_agent'], (ppo_i + 1) * config['envs_num_per_agent']
+        start, end = ppo_i * config['agents_num_p_policy'], (ppo_i + 1) * config['agents_num_p_policy']
         avil_agents = agents[start:end]
         unavil_agents = agents[:start] + agents[end:]
 
-        rewards = [a.reward for a in avil_agents]
+        rewards = sorted([a.reward for a in avil_agents])
         mean_reward = sum(rewards) / len(rewards)
 
         print(f'ppo {ppo_i}, iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in rewards])}')
@@ -322,9 +313,7 @@ for iteration in range(config['max_iter'] + 1):
             ppo.write_constant_summaries([
                 {'tag': 'reward/mean', 'simple_value': mean_reward},
                 {'tag': 'reward/max', 'simple_value': max(rewards)},
-                {'tag': 'reward/min', 'simple_value': min(rewards)},
-                {'tag': 'mixed_var/mu', 'simple_value': mu_var},
-                {'tag': 'mixed_var/sigma', 'simple_value': sigma_var}
+                {'tag': 'reward/min', 'simple_value': min(rewards)}
             ], iteration)
 
             trans_for_training = list()
@@ -337,10 +326,8 @@ for iteration in range(config['max_iter'] + 1):
                     good_trans += t
 
                 if not config['addition_objective'] and len(good_trans) > 0:
-                    s, a, discounted_r =\
-                        [np.array(e) for e in zip(*[(t['state'],
-                                                     t['action'],
-                                                     t['discounted_return']) for t in good_trans])]
+                    s, a = [np.array(e) for e in zip(*[(t['state'],
+                                                        t['action']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
 
@@ -352,10 +339,8 @@ for iteration in range(config['max_iter'] + 1):
                     aux_trans += t
 
                 if not config['addition_objective'] and len(aux_trans) > 0:
-                    s, a, discounted_r =\
-                        [np.array(e) for e in zip(*[(t['state'],
-                                                     t['action'],
-                                                     t['discounted_return']) for t in aux_trans])]
+                    s, a = [np.array(e) for e in zip(*[(t['state'],
+                                                        t['action']) for t in aux_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     aux_trans = [aux_trans[i] for i, v in enumerate(bool_mask) if v]
 
@@ -363,11 +348,15 @@ for iteration in range(config['max_iter'] + 1):
                 trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
-            s, a, adv, discounted_r = [np.array(e) for e in zip(*[(t['state'],
-                                                                   t['action'],
-                                                                   t['advantage'],
-                                                                   t['discounted_return']) for t in trans_for_training])]
-            ppo.train(s, a, adv, discounted_r, iteration)
+            s, a, adv = [np.array(e) for e in zip(*[(t['state'],
+                                                     t['action'],
+                                                     t['advantage']) for t in trans_for_training])]
+            ppo.train(s, a, adv, iteration)
+            trans_for_critic_training += trans_for_training
+
+    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
+                                                   t['discounted_return']) for t in trans_for_critic_training])]
+    critic.train(s, discounted_r, iteration)
 
     print('=' * 20)
 

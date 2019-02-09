@@ -1,5 +1,0 @@
-build_path: /data/build-linux-simple-roller/rl-test.x86_64
-write_summary_graph: true
-seed_increment: 100
-decay_steps: 200
-decay_rate: 0.7

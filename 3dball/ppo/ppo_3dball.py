@@ -1,7 +1,7 @@
 import sys
 import tensorflow as tf
 
-sys.path.append('..')
+sys.path.append('../..')
 from ppo.ppo_base import PPO_Base, initializer_helper
 
 

@@ -1,6 +1,0 @@
-build_path: C:\Users\Fisher\Documents\Unity\build-3dball-500step\rl-test.exe
-write_summary_graph: true
-seed_increment: 200
-decay_steps: 50
-decay_rate: 0.7
-epsilon: 0.1

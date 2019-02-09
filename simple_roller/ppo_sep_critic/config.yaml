@@ -6,3 +6,6 @@ write_summary_graph: true
 seed_increment: 1
 decay_steps: 70
 decay_rate: 0.7
+critic:
+  decay_steps: 70
+  decay_rate: 0.7
