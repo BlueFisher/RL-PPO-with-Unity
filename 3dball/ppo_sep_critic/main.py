@@ -134,9 +134,10 @@ class Agent(object):
             self.fill_reset_tmp_trans()
 
     def fill_reset_tmp_trans(self):
-        self.trajectories.append(self._tmp_trans)
-        self._curr_cumulative_reward = 0
-        self._tmp_trans = list()
+        if len(self._tmp_trans) != 0:
+            self.trajectories.append(self._tmp_trans)
+            self._curr_cumulative_reward = 0
+            self._tmp_trans = list()
 
     def get_cumulative_rewards(self):
         return [t[-1]['cumulative_reward'] for t in self.trajectories]
@@ -226,6 +227,10 @@ def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
 
         states = states_
 
+    # fill rest not done transitions
+    for agent in agents:
+        agent.fill_reset_tmp_trans()
+
     if TRAIN_MODE:
         cumulative_rewards = list()
         for agent in agents:
@@ -299,6 +304,13 @@ for iteration in range(config['max_iter'] + 1):
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
 
     trans_for_critic_training = list()
+    for t in [a.get_trans_combined() for a in agents]:
+        trans_for_critic_training += t
+
+    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
+                                                   t['discounted_return']) for t in trans_for_critic_training])]
+    critic.train(s, discounted_r, iteration)
+
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['agents_num_p_policy'], (ppo_i + 1) * config['agents_num_p_policy']
         avil_agents = agents[start:end]
@@ -352,11 +364,7 @@ for iteration in range(config['max_iter'] + 1):
                                                      t['action'],
                                                      t['advantage']) for t in trans_for_training])]
             ppo.train(s, a, adv, iteration)
-            trans_for_critic_training += trans_for_training
-
-    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
-                                                   t['discounted_return']) for t in trans_for_critic_training])]
-    critic.train(s, discounted_r, iteration)
+            # trans_for_critic_training += trans_for_training
 
     print('=' * 20)
 

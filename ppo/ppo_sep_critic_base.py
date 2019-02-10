@@ -61,9 +61,7 @@ class Critic_Base(object):
 
         self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
-        tf.summary.scalar('loss/value_function', L_vf)
-        self.summaries = tf.summary.merge_all()
-
+        
         with tf.name_scope('optimizer'):
             self.global_iter = tf.get_variable('global_iter', shape=(), initializer=tf.constant_initializer(0), trainable=False)
             self.lr = tf.math.maximum(tf.train.exponential_decay(learning_rate=init_lr,
@@ -72,6 +70,10 @@ class Critic_Base(object):
                                                                  decay_rate=decay_rate,
                                                                  staircase=True), 5e-6)
             self.train_op = tf.train.AdamOptimizer(self.lr).minimize(L_vf)
+
+        tf.summary.scalar('loss/lr', self.lr)
+        tf.summary.scalar('loss/value_function', L_vf)
+        self.summaries = tf.summary.merge_all()
 
     def _build_net(self, s_inputs, trainable):
         # return v

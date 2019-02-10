@@ -3,6 +3,6 @@ build_path:
   win32: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
   linux: /data/build-linux-simple-roller/rl-test.x86_64
 write_summary_graph: true
-seed_increment: 1
+seed_increment: 100
 decay_steps: 70
 decay_rate: 0.7

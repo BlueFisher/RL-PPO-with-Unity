@@ -7,3 +7,6 @@ decay_steps: 50
 decay_rate: 0.7
 addition_objective: true
 epsilon: 0.02
+critic:
+  decay_steps: 50
+  decay_rate: 0.7

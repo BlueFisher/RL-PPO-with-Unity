@@ -6,3 +6,6 @@ seed_increment: 200
 decay_steps: 50
 decay_rate: 0.7
 epsilon: 0.1
+critic:
+  decay_steps: 50
+  decay_rate: 0.7

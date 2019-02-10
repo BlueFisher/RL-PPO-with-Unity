@@ -21,6 +21,7 @@ class PPO_Base(object):
                  action_dim,
                  action_bound,
                  saver_model_path='model',
+                 save_per_iter=200,
                  summary_path='log',
                  summary_name=None,
                  write_summary_graph=False,
@@ -34,8 +35,7 @@ class PPO_Base(object):
                  init_lr=0.00005,
                  decay_steps=50,
                  decay_rate=0.9,
-                 epoch_size=10,  # train K epochs
-                 save_per_iter=200):
+                 epoch_size=10):  # train K epochs
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)

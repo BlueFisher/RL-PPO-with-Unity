@@ -139,9 +139,10 @@ class Agent(object):
             self.fill_reset_tmp_trans()
 
     def fill_reset_tmp_trans(self):
-        self.trajectories.append(self._tmp_trans)
-        self._curr_cumulative_reward = 0
-        self._tmp_trans = list()
+        if len(self._tmp_trans) != 0:
+            self.trajectories.append(self._tmp_trans)
+            self._curr_cumulative_reward = 0
+            self._tmp_trans = list()
 
     def get_cumulative_rewards(self):
         return [t[-1]['cumulative_reward'] for t in self.trajectories]

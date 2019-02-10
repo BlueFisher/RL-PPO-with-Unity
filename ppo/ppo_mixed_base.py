@@ -5,7 +5,7 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('../..')
+sys.path.append('..')
 from util.saver import Saver
 from util.utils import smooth
 
@@ -15,27 +15,27 @@ initializer_helper = {
 }
 
 
-class Mixed_PPO(object):
+class PPO_Base(object):
     def __init__(self,
                  state_dim,
                  action_dim,
                  action_bound,
                  saver_model_path='model',
+                 save_per_iter=200,
                  summary_path='log',
                  summary_name=None,
                  write_summary_graph=False,
                  seed=None,
+                 policies_num=1,
                  batch_size=2048,
                  variance_bound=1.,
                  addition_objective=False,
                  beta=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip bound
-                 combine_ratio=1,
                  init_lr=0.00005,
                  decay_steps=50,
                  decay_rate=0.9,
-                 epoch_size=10,  # train K epochs
-                 save_per_iter=200):
+                 epoch_size=10):  # train K epochs
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -53,7 +53,7 @@ class Mixed_PPO(object):
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate)
+            self._build_model(policies_num, addition_objective, beta, epsilon, init_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -69,10 +69,12 @@ class Mixed_PPO(object):
 
         self.variables_cached_deque = collections.deque(maxlen=10)
 
-    def _build_model(self, addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate):
+    def _build_model(self, policies_num, addition_objective, beta, epsilon, init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
-        self.policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
-        old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
+
+        self.policy, policy_variables = self._build_actor_mixed_nets(self.pl_s, 'actor', True, policies_num)
+        old_policy, old_policy_variables = self._build_actor_mixed_nets(self.pl_s, 'old_actor', False, policies_num)
+        self.v = self._build_critic_net(self.pl_s, 'critic', True)
 
         with tf.name_scope('objective_and_value_function_loss'):
             self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
@@ -95,6 +97,7 @@ class Mixed_PPO(object):
 
             L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
             S = tf.reduce_mean(self.policy.entropy(), name='entropy')
+            L = L_clip + beta * S
 
         self.choose_action_op = tf.squeeze(self.policy.sample(1), axis=0)
 
@@ -105,16 +108,12 @@ class Mixed_PPO(object):
                                                                  decay_steps=decay_steps,
                                                                  decay_rate=decay_rate,
                                                                  staircase=True), 5e-6)
-            if combine_ratio > 0:
-                L = L_clip - combine_ratio * L_vf + beta * S
-                self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
-            else:
-                L = L_clip + beta * S
-                self.train_op = [tf.train.AdamOptimizer(self.lr).minimize(-L),
-                                 tf.train.AdamOptimizer(self.lr).minimize(L_vf)]
+
+            self.train_op = [tf.train.AdamOptimizer(self.lr).minimize(-L),
+                             tf.train.AdamOptimizer(self.lr).minimize(L_vf)]
 
         self.update_variables_op = [tf.assign(r, v) for r, v in
-                                    zip(old_policy_v_variables, policy_v_variables)]
+                                    zip(old_policy_variables, policy_variables)]
 
         self.variables_cachable = [v for v in tf.global_variables() if v != self.lr]
 
@@ -123,11 +122,11 @@ class Mixed_PPO(object):
         tf.summary.scalar('loss/lr', self.lr)
         self.summaries = tf.summary.merge_all()
 
-    def _build_net(self, s_inputs, scope, trainable, reuse=False):
-        with tf.variable_scope(scope, reuse=reuse):
+    def _build_actor_mixed_nets(self, s_inputs, scope, trainable, policies_num):
+        with tf.variable_scope(scope):
             policies = []
             policy_variables = []
-            for i in range(5):
+            for i in range(policies_num):
                 _policy, _policy_variables = self._build_actor_net(s_inputs, f'actor_{i}', trainable)
                 policies.append(_policy)
                 policy_variables += _policy_variables
@@ -135,41 +134,16 @@ class Mixed_PPO(object):
             mu = tf.reduce_mean([p.loc for p in policies], axis=0)
             sigma = tf.reduce_mean([p.scale for p in policies], axis=0)
             norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
-            v, v_variables = self._build_critic_net(s_inputs, 'critic', trainable)
 
-        return norm_dist, v, policy_variables + v_variables
+        return norm_dist, policy_variables
 
     def _build_critic_net(self, s_inputs, scope, trainable, reuse=False):
-        with tf.variable_scope(scope, reuse=reuse):
-            l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            v = tf.layers.dense(l, 1, trainable=trainable, **initializer_helper)
-
-            variables = tf.get_variable_scope().global_variables()
-
-        return v, variables
+        # return v
+        raise Exception('PPO_Base._build_critic_net not implemented')
 
     def _build_actor_net(self, s_inputs, scope, trainable, reuse=False):
-        with tf.variable_scope(scope, reuse=reuse):
-            l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
-            l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-
-            mu = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
-            sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
-
-            mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
-
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
-
-            variables = tf.get_variable_scope().global_variables()
-
-        return norm_dist, variables
+        # return policy, variables
+        raise Exception('PPO_Base._build_actor_net not implemented')
 
     def get_td_error(self, s, r, s_, done):
         assert len(s.shape) == 2

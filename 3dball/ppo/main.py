@@ -226,6 +226,10 @@ def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
 
         states = states_
 
+    # fill rest not done transitions
+    for agent in agents:
+        agent.fill_reset_tmp_trans()
+        
     if TRAIN_MODE:
         cumulative_rewards = list()
         for agent in agents:
