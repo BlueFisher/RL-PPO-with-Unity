@@ -59,9 +59,9 @@ class PG(PPO_Base):
 
             mu, sigma = mu * self.a_bound, sigma * self.variance_bound
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
-        return norm_dist
+        return policy
 
     def train(self, s, a, discounted_r, mean_reward, iteration):
         assert len(s.shape) == 2

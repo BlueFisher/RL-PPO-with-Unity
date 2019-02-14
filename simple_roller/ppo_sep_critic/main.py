@@ -27,6 +27,8 @@ config = {
     'agents_num_p_policy': 1,
     'seed_increment': None,
     'mix': True,
+    'aux_cumulative_ratio': 0.5,
+    'good_trans_ratio': 1,
     'addition_objective': False
 }
 agent_config = dict()
@@ -93,6 +95,7 @@ print('critic_config:')
 for k, v in critic_config.items():
     print(f'{k:>25}: {v}')
 print('=' * 20)
+
 
 class Agent(object):
     def __init__(self, agent_id):
@@ -241,7 +244,7 @@ def simulate_multippo(env, brain_info, default_brain_name, ppos: list, critic):
         for agent in agents:
             cumulative_rewards += agent.get_cumulative_rewards()
         cumulative_rewards.sort()
-        aux_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) / 6)]
+        aux_cumulative_reward = cumulative_rewards[-int(len(cumulative_rewards) * config['aux_cumulative_ratio'])]
 
         for agent in agents:
             agent.compute_discounted_return()
@@ -349,6 +352,9 @@ for iteration in range(config['max_iter'] + 1):
                                                         t['action']) for t in good_trans])]
                     bool_mask = ppo.get_not_zero_prob_bool_mask(s, a)
                     good_trans = [good_trans[i] for i, v in enumerate(bool_mask) if v]
+
+                np.random.shuffle(good_trans)
+                good_trans = good_trans[:int(len(trans_for_training) * config['good_trans_ratio'])]
 
                 aux_trans = list()
                 for t in [a.get_aux_trans_combined() for a in unavil_agents]:

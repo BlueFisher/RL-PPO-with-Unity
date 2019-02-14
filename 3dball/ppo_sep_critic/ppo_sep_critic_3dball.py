@@ -32,8 +32,8 @@ class PPO(PPO_Base):
 
             mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
             variables = tf.get_variable_scope().global_variables()
 
-        return norm_dist, variables
+        return policy, variables

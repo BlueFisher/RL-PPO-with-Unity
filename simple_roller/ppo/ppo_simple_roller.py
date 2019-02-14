@@ -39,11 +39,11 @@ class PPO_SEP(PPO_Base):
 
             mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
             variables = tf.get_variable_scope().global_variables()
 
-        return norm_dist, variables
+        return policy, variables
 
 
 class PPO_STD(PPO_Base):
@@ -60,7 +60,7 @@ class PPO_STD(PPO_Base):
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
             mu, sigma = mu * self.a_bound, sigma * self.variance_bound + .1
 
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
             v_l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             v_l = tf.layers.dense(v_l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -68,4 +68,4 @@ class PPO_STD(PPO_Base):
 
             variables = tf.get_variable_scope().global_variables()
 
-        return norm_dist, v, variables
+        return policy, v, variables

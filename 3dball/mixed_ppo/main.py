@@ -132,14 +132,6 @@ class Agent(object):
         return [] if len(self.trajectories) == 0 else \
             reduce(lambda x, y: x + y, self.trajectories)
 
-    def get_good_trans_combined(self):
-        return [] if len(self.good_trajectories) == 0 else \
-            reduce(lambda x, y: x + y, self.good_trajectories)
-
-    def get_aux_trans_combined(self):
-        return [] if len(self.aux_trajectories) == 0 else \
-            reduce(lambda x, y: x + y, self.aux_trajectories)
-
     def compute_discounted_return(self):
         for trans in self.trajectories:
             if (not trans[-1]['max_reached']) and trans[-1]['local_done']:
@@ -248,8 +240,7 @@ reset_config = {
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
 for iteration in range(config['max_iter'] + 1):
-    if env.global_done:
-        brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
+    brain_info = env.reset(train_mode=TRAIN_MODE)[default_brain_name]
 
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppo)
 
