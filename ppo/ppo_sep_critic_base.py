@@ -97,6 +97,8 @@ class Critic_Base(object):
             })
             self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
 
+        self.sess.run(self.global_iter.assign(iteration + self.init_iteration))
+
         for i in range(0, s.shape[0], self.batch_size):
             _s, _discounted_r = (s[i:i + self.batch_size],
                                  discounted_r[i:i + self.batch_size])

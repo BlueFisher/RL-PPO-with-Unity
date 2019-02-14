@@ -27,7 +27,7 @@ config = {
     'agents_num_p_policy': 1,
     'seed_increment': None,
     'mix': True,
-    'aux_cumulative_ratio': 0.5,
+    'aux_cumulative_ratio': 0.4,
     'good_trans_ratio': 1,
     'addition_objective': False
 }
