@@ -133,9 +133,9 @@ class PPO_Base(object):
 
             mu = tf.reduce_mean([p.loc for p in policies], axis=0)
             sigma = tf.reduce_mean([p.scale for p in policies], axis=0)
-            norm_dist = tf.distributions.Normal(loc=mu, scale=sigma)
+            policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
-        return norm_dist, policy_variables
+        return policy, policy_variables
 
     def _build_critic_net(self, s_inputs, scope, trainable, reuse=False):
         # return v

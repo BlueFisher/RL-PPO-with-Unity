@@ -1,0 +1,11 @@
+#build_path: C:\Users\Fisher\Documents\Unity\build-obstacle-roller-large\rl-test.exe
+build_path: 
+  win32: C:\Users\Fisher\Documents\Unity\build-obstacle-roller-large\rl-test.exe
+  linux: /data/build-linux-obstacle-roller-large/rl-test.x86_64
+write_summary_graph: true
+seed_increment: 100
+max_iter: 10000
+decay_steps: 200
+decay_rate: 0.9
+addition_objective: true
+epsilon: 0.05
