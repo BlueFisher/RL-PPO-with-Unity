@@ -172,6 +172,12 @@ class PPO_Base(object):
             self.pl_s: s
         })
 
+        if np.isnan(np.min(a)):
+            print('WARNING! NAN IN ACTIONS')
+            self._restore_variables_cachable()
+            a = self.sess.run(self.choose_action_op, {
+                self.pl_s: s
+            })
         # for i, ai in enumerate(a):
         #     for j in range(2):
         #         width = self.a_bound[j] * 2
@@ -182,13 +188,6 @@ class PPO_Base(object):
         #         elif ai[j] <= -self.a_bound[j] - width or ai[j] >= self.a_bound[j] + width:
         #             ai[j] = np.random.rand(1) * 2 - 1
         #     a[i] = ai
-
-        if np.isnan(np.min(a)):
-            print('WARNING! NAN IN ACTIONS')
-            self._restore_variables_cachable()
-            a = self.sess.run(self.choose_action_op, {
-                self.pl_s: s
-            })
 
         return np.clip(a, -self.a_bound, self.a_bound)
 
