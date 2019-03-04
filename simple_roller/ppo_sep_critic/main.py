@@ -171,8 +171,6 @@ class Agent(object):
             for tran in trans[::-1]:
                 v_tmp = tran['reward'] + config['gamma'] * v_tmp
                 tran['discounted_return'] = v_tmp
-                v = self.critic.get_v(tran['state'][np.newaxis, :])[0]
-                tran['td_error_critic'] = np.abs(tran['discounted_return'] - v)
 
     def compute_advantage(self):
         for trans in self.trajectories:
@@ -319,7 +317,6 @@ for iteration in range(config['max_iter'] + 1):
     #     trans += t
 
     trans_for_critic_training = list()
-    trans_for_critic_training_good = list()
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['agents_num_p_policy'], (ppo_i + 1) * config['agents_num_p_policy']
         avil_agents = agents[start:end]
@@ -350,7 +347,7 @@ for iteration in range(config['max_iter'] + 1):
                 good_trans = list()
                 for t in [a.get_good_trans_combined() for a in unavil_agents]:
                     good_trans += t
-                    trans_for_critic_training_good += t
+                    trans_for_critic_training += t
 
                 if not config['addition_objective'] and len(good_trans) > 0:
                     s, a = [np.array(e) for e in zip(*[(t['state'],
@@ -375,19 +372,18 @@ for iteration in range(config['max_iter'] + 1):
                 trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
-            s, a, adv = [np.array(e) for e in zip(*[(t['state'],
-                                                     t['action'],
-                                                     t['advantage']) for t in trans_for_training])]
-            ppo.train(s, a, adv, iteration)
+            ppo.train([{
+                's': t['state'],
+                'a': t['action'],
+                'adv': t['advantage'],
+            } for t in trans_for_training], iteration)
 
-    # trans_for_critic_training.sort(key=lambda elem: elem['td_error_critic'])
-    trans_for_critic_training = list(filter(lambda t: t['td_error_critic'] > 0.01, trans_for_critic_training))
-    trans_for_critic_training += trans_for_critic_training_good
     np.random.shuffle(trans_for_critic_training)
 
-    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
-                                                   t['discounted_return']) for t in trans_for_critic_training])]
-    critic.train(s, discounted_r, iteration)
+    critic.train([{
+        's': t['state'],
+        'discounted_r': t['discounted_return']
+    } for t in trans_for_critic_training], iteration)
 
     print('=' * 20)
 

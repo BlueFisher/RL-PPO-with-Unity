@@ -1,4 +1,3 @@
-#build_path: C:\Users\Fisher\Documents\Unity\build-obstacle-roller-large\rl-test.exe
 build_path: 
   win32: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
   linux: /data/build-linux-simple-roller/rl-test.x86_64

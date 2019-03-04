@@ -24,6 +24,9 @@ class Critic_Base(object):
                  summary_name=None,
                  write_summary_graph=False,
                  seed=None,
+                 init_td_threshold=0.01,
+                 td_threshold_decay_steps=100,
+                 td_threshold_rate=0.5,
                  init_lr=0.00005,
                  decay_steps=50,
                  decay_rate=0.9,
@@ -41,7 +44,8 @@ class Critic_Base(object):
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(init_lr, decay_steps, decay_rate)
+            self._build_model(init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                              init_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -55,13 +59,15 @@ class Critic_Base(object):
                     writer.close()
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
-    def _build_model(self, init_lr, decay_steps, decay_rate):
+    def _build_model(self,
+                     init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                     init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         self.v = self._build_net(self.pl_s, 'critic', True)
 
         self.pl_discounted_r = tf.placeholder(tf.float32, shape=(None, 1), name='discounted_reward')
         L_vf = tf.reduce_mean(tf.square(self.pl_discounted_r - self.v), name='value_function_loss')
-        
+
         with tf.name_scope('optimizer'):
             self.global_iter = tf.get_variable('global_iter', shape=(), initializer=tf.constant_initializer(0), trainable=False)
             self.lr = tf.math.maximum(tf.train.exponential_decay(learning_rate=init_lr,
@@ -69,6 +75,12 @@ class Critic_Base(object):
                                                                  decay_steps=decay_steps,
                                                                  decay_rate=decay_rate,
                                                                  staircase=True), 5e-6)
+
+            self.td_threshold = tf.train.exponential_decay(init_td_threshold,
+                                                           global_step=self.global_iter,
+                                                           decay_steps=td_threshold_decay_steps,
+                                                           decay_rate=td_threshold_rate,
+                                                           staircase=True)
             self.train_op = tf.train.AdamOptimizer(self.lr).minimize(L_vf)
 
         tf.summary.scalar('loss/lr', self.lr)
@@ -86,7 +98,14 @@ class Critic_Base(object):
             self.pl_s: s
         })
 
-    def train(self, s, discounted_r, iteration):
+    def train(self, trans, iteration):
+        td_errors = np.abs(self.get_v(np.array([t['s'] for t in trans])) - np.array([t['discounted_r'] for t in trans]))
+        bool_mask = np.all(td_errors > self.sess.run(self.td_threshold), axis=1)
+        s, discounted_r = [np.array(e) for e in zip(*[(t['s'],
+                                                       t['discounted_r']) for t in trans])]
+        s = s[bool_mask]
+        discounted_r = discounted_r[bool_mask]
+
         if iteration + self.init_iteration % self.save_per_iter == 0:
             self.saver.save(iteration + self.init_iteration)
 
@@ -272,7 +291,11 @@ class PPO_Base(object):
         bool_mask = ~np.any(policy_prob <= 1.e-7, axis=1)
         return bool_mask
 
-    def train(self, s, a, adv, iteration):
+    def train(self, trans, iteration):
+        s, a, adv = [np.array(e) for e in zip(*[(t['s'],
+                                                 t['a'],
+                                                 t['adv']) for t in trans])]
+
         assert len(s.shape) == 2
         assert len(a.shape) == 2
         assert len(adv.shape) == 2
