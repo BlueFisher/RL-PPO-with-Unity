@@ -24,7 +24,7 @@ class Critic_Base(object):
                  summary_name=None,
                  write_summary_graph=False,
                  seed=None,
-                 init_td_threshold=0.01,
+                 init_td_threshold=0,
                  td_threshold_decay_steps=100,
                  td_threshold_rate=0.5,
                  init_lr=0.00005,

@@ -84,7 +84,9 @@ for opt, arg in opts:
 if not os.path.exists('config'):
     os.makedirs('config')
 with open(f'config/{config["name"]}.yaml', 'w') as f:
-    yaml.dump({**config, **agent_config}, f, default_flow_style=False)
+    yaml.dump({**config, **agent_config,
+               'critic': {**critic_config}
+               }, f, default_flow_style=False)
 
 for k, v in config.items():
     print(f'{k:>25}: {v}')
