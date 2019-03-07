@@ -382,11 +382,10 @@ for iteration in range(config['max_iter'] + 1):
 
     np.random.shuffle(trans_for_critic_training)
 
-    critic.train([{
-        's': t['state'],
-        'discounted_r': t['discounted_return']
-    } for t in trans_for_critic_training], iteration)
-
+    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
+                                                   t['discounted_return']) for t in trans_for_critic_training])]
+    critic.train(s, discounted_r, iteration)
+    
     print('=' * 20)
 
 

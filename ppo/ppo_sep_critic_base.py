@@ -98,13 +98,11 @@ class Critic_Base(object):
             self.pl_s: s
         })
 
-    def train(self, trans, iteration):
-        td_errors = np.abs(self.get_v(np.array([t['s'] for t in trans])) - np.array([t['discounted_r'] for t in trans]))
-        bool_mask = np.all(td_errors > self.sess.run(self.td_threshold), axis=1)
-        s, discounted_r = [np.array(e) for e in zip(*[(t['s'],
-                                                       t['discounted_r']) for t in trans])]
-        s = s[bool_mask]
-        discounted_r = discounted_r[bool_mask]
+    def train(self, s, discounted_r, iteration):
+        td_error = np.abs(self.get_v(s) - discounted_r)
+        bool_mask = np.all(td_error > self.sess.run(self.td_threshold), axis=1)
+
+        s, discounted_r = s[bool_mask], discounted_r[bool_mask]
 
         if iteration + self.init_iteration % self.save_per_iter == 0:
             self.saver.save(iteration + self.init_iteration)
