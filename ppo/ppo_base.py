@@ -21,7 +21,7 @@ class PPO_Base(object):
                  action_dim,
                  action_bound,
                  saver_model_path='model',
-                 save_per_iter=200,
+                 save_per_iter=1000,
                  summary_path='log',
                  summary_name=None,
                  write_summary_graph=False,

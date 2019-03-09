@@ -15,7 +15,8 @@ class PPO_SEP(PPO_Base):
 
     def _build_critic_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
-            l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(s_inputs, 1024, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -27,7 +28,8 @@ class PPO_SEP(PPO_Base):
 
     def _build_actor_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
-            l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(s_inputs, 1024, tf.nn.relu, trainable=trainable, **initializer_helper)
+            l = tf.layers.dense(l, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 256, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 128, tf.nn.relu, trainable=trainable, **initializer_helper)
             l = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)

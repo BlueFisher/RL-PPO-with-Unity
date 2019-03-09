@@ -260,7 +260,7 @@ else:
 default_brain_name = env.brain_names[0]
 
 brain_params = env.brains[default_brain_name]
-state_dim = brain_params.vector_observation_space_size
+state_dim = brain_params.vector_observation_space_size * brain_params.num_stacked_vector_observations
 action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
@@ -308,15 +308,6 @@ for iteration in range(config['max_iter'] + 1):
     brain_info, agents = simulate_multippo(env, brain_info, default_brain_name, ppos)
     if TRAIN_MODE:
         test_states = brain_info.vector_observations
-        mu = list()
-        sigma = list()
-        for ppo in ppos:
-            _mu, _sigma = ppo.get_policy(test_states)
-            mu.append(_mu.reshape(-1))
-            sigma.append(_sigma.reshape(-1))
-
-        mu_var = np.mean(np.var(mu, axis=0))
-        sigma_var = np.mean(np.var(sigma, axis=0))
 
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['agents_num_p_policy'], (ppo_i + 1) * config['agents_num_p_policy']
@@ -332,9 +323,7 @@ for iteration in range(config['max_iter'] + 1):
             ppo.write_constant_summaries([
                 {'tag': 'reward/mean', 'simple_value': mean_reward},
                 {'tag': 'reward/max', 'simple_value': max(rewards)},
-                {'tag': 'reward/min', 'simple_value': min(rewards)},
-                {'tag': 'mixed_var/mu', 'simple_value': mu_var},
-                {'tag': 'mixed_var/sigma', 'simple_value': sigma_var}
+                {'tag': 'reward/min', 'simple_value': min(rewards)}
             ], iteration)
 
             trans_for_training = list()
