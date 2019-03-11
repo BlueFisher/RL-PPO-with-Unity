@@ -374,18 +374,17 @@ for iteration in range(config['max_iter'] + 1):
                 trans_for_training = trans_for_training + good_trans + aux_trans
                 np.random.shuffle(trans_for_training)
 
-            ppo.train([{
-                's': t['state'],
-                'a': t['action'],
-                'adv': t['advantage'],
-            } for t in trans_for_training], iteration)
+            s, a, adv = [np.array(e) for e in zip(*[(t['state'],
+                                                     t['action'],
+                                                     t['advantage']) for t in trans_for_training])]
+            ppo.train(s, a, adv, iteration)
 
     np.random.shuffle(trans_for_critic_training)
 
     s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
                                                    t['discounted_return']) for t in trans_for_critic_training])]
     critic.train(s, discounted_r, iteration)
-    
+
     print('=' * 20)
 
 

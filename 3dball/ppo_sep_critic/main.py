@@ -260,7 +260,7 @@ else:
 default_brain_name = env.brain_names[0]
 
 brain_params = env.brains[default_brain_name]
-state_dim = brain_params.vector_observation_space_size
+state_dim = brain_params.vector_observation_space_size * brain_params.num_stacked_vector_observations
 action_dim = brain_params.vector_action_space_size[0]
 action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
@@ -309,10 +309,7 @@ for iteration in range(config['max_iter'] + 1):
     for t in [a.get_trans_combined() for a in agents]:
         trans_for_critic_training += t
 
-    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
-                                                   t['discounted_return']) for t in trans_for_critic_training])]
-    critic.train(s, discounted_r, iteration)
-
+    trans_for_critic_training = list()
     for ppo_i, ppo in enumerate(ppos):
         start, end = ppo_i * config['agents_num_p_policy'], (ppo_i + 1) * config['agents_num_p_policy']
         avil_agents = agents[start:end]
@@ -333,6 +330,7 @@ for iteration in range(config['max_iter'] + 1):
             trans_for_training = list()
             for t in [a.get_trans_combined() for a in avil_agents]:
                 trans_for_training += t
+                trans_for_critic_training += t
 
             if config['mix']:
                 good_trans = list()
@@ -366,7 +364,12 @@ for iteration in range(config['max_iter'] + 1):
                                                      t['action'],
                                                      t['advantage']) for t in trans_for_training])]
             ppo.train(s, a, adv, iteration)
-            # trans_for_critic_training += trans_for_training
+
+    np.random.shuffle(trans_for_critic_training)
+
+    s, discounted_r = [np.array(e) for e in zip(*[(t['state'],
+                                                   t['discounted_return']) for t in trans_for_critic_training])]
+    critic.train(s, discounted_r, iteration)
 
     print('=' * 20)
 

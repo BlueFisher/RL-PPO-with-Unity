@@ -6,6 +6,8 @@ max_iter: 4000
 seed_increment: 200
 decay_steps: 100
 decay_rate: 0.8
+epsilon: 0.1
 beta: 0.0008
-addition_objective: true
-epsilon: 0.02
+critic:
+  decay_steps: 100
+  decay_rate: 0.8

@@ -8,4 +8,7 @@ decay_steps: 100
 decay_rate: 0.8
 beta: 0.0008
 addition_objective: true
-epsilon: 0.02
+epsilon: 0.05
+critic:
+  decay_steps: 100
+  decay_rate: 0.8

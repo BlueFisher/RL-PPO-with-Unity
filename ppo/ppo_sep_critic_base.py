@@ -24,7 +24,7 @@ class Critic_Base(object):
                  summary_name=None,
                  write_summary_graph=False,
                  seed=None,
-                 init_td_threshold=0,
+                 init_td_threshold=0.0,
                  td_threshold_decay_steps=100,
                  td_threshold_rate=0.5,
                  init_lr=0.00005,
@@ -289,11 +289,7 @@ class PPO_Base(object):
         bool_mask = ~np.any(policy_prob <= 1.e-7, axis=1)
         return bool_mask
 
-    def train(self, trans, iteration):
-        s, a, adv = [np.array(e) for e in zip(*[(t['s'],
-                                                 t['a'],
-                                                 t['adv']) for t in trans])]
-
+    def train(self, s, a, adv, iteration):
         assert len(s.shape) == 2
         assert len(a.shape) == 2
         assert len(adv.shape) == 2
