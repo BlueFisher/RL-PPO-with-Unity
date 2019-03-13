@@ -8,3 +8,5 @@ decay_steps: 200
 decay_rate: 0.9
 addition_objective: true
 epsilon: 0.05
+init_td_threshold: 0.2
+td_threshold_decay_steps: 300

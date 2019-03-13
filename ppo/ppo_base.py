@@ -26,6 +26,9 @@ class PPO_Base(object):
                  summary_name=None,
                  write_summary_graph=False,
                  seed=None,
+                 init_td_threshold=0.0,
+                 td_threshold_decay_steps=100,
+                 td_threshold_rate=0.5,
                  batch_size=2048,
                  variance_bound=1.,
                  addition_objective=False,
@@ -53,7 +56,9 @@ class PPO_Base(object):
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate)
+            self._build_model(addition_objective, combine_ratio, beta, epsilon,
+                              init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                              init_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -69,7 +74,9 @@ class PPO_Base(object):
 
         self.variables_cached_deque = collections.deque(maxlen=10)
 
-    def _build_model(self, addition_objective, combine_ratio, beta, epsilon, init_lr, decay_steps, decay_rate):
+    def _build_model(self, addition_objective, combine_ratio, beta, epsilon,
+                     init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                     init_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         self.policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
         old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
@@ -105,6 +112,12 @@ class PPO_Base(object):
                                                                  decay_steps=decay_steps,
                                                                  decay_rate=decay_rate,
                                                                  staircase=True), 5e-6)
+
+            self.td_threshold = tf.train.exponential_decay(init_td_threshold,
+                                                           global_step=self.global_iter,
+                                                           decay_steps=td_threshold_decay_steps,
+                                                           decay_rate=td_threshold_rate,
+                                                           staircase=True)
             if combine_ratio > 0:
                 L = L_clip - combine_ratio * L_vf + beta * S
                 self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
@@ -213,6 +226,11 @@ class PPO_Base(object):
         assert len(adv.shape) == 2
         assert len(discounted_r.shape) == 2
         assert s.shape[0] == a.shape[0] == adv.shape[0] == discounted_r.shape[0]
+
+        td_error = np.abs(self.get_v(s) - discounted_r)
+        bool_mask = np.all(td_error > self.sess.run(self.td_threshold), axis=1)
+
+        s, a, adv, discounted_r = s[bool_mask], a[bool_mask], adv[bool_mask], discounted_r[bool_mask]
 
         self.sess.run(self.update_variables_op)  # TODO
 
