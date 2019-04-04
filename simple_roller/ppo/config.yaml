@@ -3,5 +3,6 @@ build_path:
   linux: /data/linux-simple-roller/rl-test.x86_64
 write_summary_graph: true
 seed_increment: 100
-decay_steps: 70
+decay_steps: 500
 decay_rate: 0.7
+max_iter: 3000

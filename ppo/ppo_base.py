@@ -35,7 +35,8 @@ class PPO_Base(object):
                  beta=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip bound
                  combine_ratio=1,
-                 init_lr=0.00005,
+                 init_lr=5e-5,
+                 min_lr=1e-5,
                  decay_steps=50,
                  decay_rate=0.9,
                  epoch_size=10):  # train K epochs
@@ -58,7 +59,7 @@ class PPO_Base(object):
                 tf.random.set_random_seed(seed)
             self._build_model(addition_objective, combine_ratio, beta, epsilon,
                               init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
-                              init_lr, decay_steps, decay_rate)
+                              init_lr, min_lr, decay_steps, decay_rate)
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
@@ -72,11 +73,9 @@ class PPO_Base(object):
                     writer.close()
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
-        self.variables_cached_deque = collections.deque(maxlen=10)
-
     def _build_model(self, addition_objective, combine_ratio, beta, epsilon,
                      init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
-                     init_lr, decay_steps, decay_rate):
+                     init_lr, min_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         self.policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
         old_policy, old_v, old_policy_v_variables = self._build_net(self.pl_s, 'old_actor_critic', False)
@@ -111,7 +110,7 @@ class PPO_Base(object):
                                                                  global_step=self.global_iter,
                                                                  decay_steps=decay_steps,
                                                                  decay_rate=decay_rate,
-                                                                 staircase=True), 5e-6)
+                                                                 staircase=True), min_lr)
 
             self.td_threshold = tf.train.exponential_decay(init_td_threshold,
                                                            global_step=self.global_iter,
@@ -167,20 +166,21 @@ class PPO_Base(object):
             self.pl_s: s
         })
 
-        # for i, ai in enumerate(a):
-        #     for j in range(2):
-        #         width = self.a_bound[j] * 2
-        #         if self.a_bound[j] < ai[j] < self.a_bound[j] + width:
-        #             ai[j] -= width
-        #         elif -self.a_bound[j] - width < ai[j] < -self.a_bound[j]:
-        #             ai[j] += width
-        #         elif ai[j] <= -self.a_bound[j] - width or ai[j] >= self.a_bound[j] + width:
-        #             ai[j] = np.random.rand(1) * 2 - 1
-        #     a[i] = ai
+        # row, col = a.shape
+        # for i in range(col):
+        #     action = a[:, i]
+        #     bound = self.a_bound[i]
+        #     width = bound * 2
+        #     for j in range(row):
+        #         if bound < action[j] < bound + width:
+        #             a[j, i] = width - action[j]
+        #         elif -bound - width < action[j] < -bound:
+        #             a[j, i] = -width - action[j]
+        #         elif action[j] <= -bound - width or action[j] >= bound + width:
+        #             a[j, i] = np.random.rand(1) * width - bound
 
         if np.isnan(np.min(a)):
             print('WARNING! NAN IN ACTIONS')
-            self._restore_variables_cachable()
             a = self.sess.run(self.choose_action_op, {
                 self.pl_s: s
             })
@@ -193,17 +193,6 @@ class PPO_Base(object):
         return self.sess.run([self.policy.loc, self.policy.scale], {
             self.pl_s: s
         })
-
-    def _restore_variables_cachable(self):
-        variables = self.variables_cached_deque[0]
-        self.sess.run([tf.assign(r, v) for r, v in
-                       zip(self.variables_cachable, variables)])
-
-        self.variables_cached_deque.clear()
-        self.variables_cached_deque.append(variables)
-
-    def _cache_variables_cachable(self):
-        self.variables_cached_deque.append(self.sess.run(self.variables_cachable))
 
     def write_constant_summaries(self, constant_summaries, iteration):
         if self.summary_writer is not None:
@@ -227,14 +216,12 @@ class PPO_Base(object):
         assert len(discounted_r.shape) == 2
         assert s.shape[0] == a.shape[0] == adv.shape[0] == discounted_r.shape[0]
 
-        td_error = np.abs(self.get_v(s) - discounted_r)
+        td_error = np.square(self.get_v(s) - discounted_r)
         bool_mask = np.all(td_error > self.sess.run(self.td_threshold), axis=1)
-
-        s, a, adv, discounted_r = s[bool_mask], a[bool_mask], adv[bool_mask], discounted_r[bool_mask]
+        if not np.all(bool_mask == False):
+            s, a, adv, discounted_r = s[bool_mask], a[bool_mask], adv[bool_mask], discounted_r[bool_mask]
 
         self.sess.run(self.update_variables_op)  # TODO
-
-        self._cache_variables_cachable()
 
         if iteration % self.save_per_iter == 0:
             self.saver.save(iteration + self.init_iteration)
