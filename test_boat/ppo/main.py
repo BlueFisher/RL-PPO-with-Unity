@@ -3,6 +3,7 @@ import getopt
 import time
 import random
 import os
+import importlib
 import yaml
 from functools import reduce
 
@@ -11,7 +12,6 @@ import tensorflow as tf
 
 sys.path.append('../..')
 from mlagents.envs import UnityEnvironment
-from ppo_test_boat import PPO_SEP, PPO_STD
 
 NOW = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
 TRAIN_MODE = True
@@ -20,7 +20,7 @@ config = {
     'name': NOW,
     'build_path': None,
     'port': 7000,
-    'ppo': 'sep',
+    'ppo': 'ppo',
     'lambda': 1,
     'gamma': 0.99,
     'max_iter': 2000,
@@ -80,10 +80,11 @@ for opt, arg in opts:
     elif opt == '--no_mix':
         config['mix'] = False
 
-if not os.path.exists('config'):
-    os.makedirs('config')
-with open(f'config/{config["name"]}.yaml', 'w') as f:
-    yaml.dump({**config, **agent_config}, f, default_flow_style=False)
+if TRAIN_MODE:
+    if not os.path.exists('config'):
+        os.makedirs('config')
+    with open(f'config/{config["name"]}.yaml', 'w') as f:
+        yaml.dump({**config, **agent_config}, f, default_flow_style=False)
 
 for k, v in config.items():
     print(f'{k:>25}: {v}')
@@ -249,6 +250,8 @@ def simulate_multippo(env, brain_info, default_brain_name, ppos: list):
     return brain_info, agents
 
 
+PPO = importlib.import_module(config['ppo']).PPO
+
 if config['build_path'] is None or config['build_path'] == '':
     env = UnityEnvironment()
 else:
@@ -277,15 +280,6 @@ for i in range(config['policies_num']):
     else:
         seed = i + config['seed_increment']
 
-    if config['ppo'] == 'sep':
-        PPO = PPO_SEP
-        combine_ratio = 0
-    elif config['ppo'] == 'std':
-        PPO = PPO_STD
-        combine_ratio = 1
-    else:
-        raise Exception(f'PPO name {config["ppo"]} is in correct')
-
     print('=' * 10, name, '=' * 10)
     ppos.append(PPO(state_dim=state_dim,
                     action_dim=action_dim,
@@ -294,7 +288,6 @@ for i in range(config['policies_num']):
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
                     seed=seed,
-                    combine_ratio=combine_ratio,
                     addition_objective=config['addition_objective'],
                     **agent_config))
 

@@ -1,9 +1,14 @@
 build_path: 
-  win32: C:\Users\Fisher\Documents\Unity\build-test-boat\boat.exe
-  linux: /data/zzy/linux-test-boat/boat.x86_64
+  win32: C:\Users\Fisher\Documents\Unity\build-test-boat-small\boat.exe
+  linux: /data/linux-test-boat/boat.x86_64
 write_summary_graph: true
-seed_increment: 1
-decay_steps: 500
+seed_increment: 100
+
+init_td_threshold: 0.1
+
+min_lr: 0.0
+decay_steps: 400
 decay_rate: 0.8
+
 max_iter: 10000
-lambda: 0.95
+lambda: 0.99

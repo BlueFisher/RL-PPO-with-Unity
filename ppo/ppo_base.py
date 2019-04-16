@@ -7,7 +7,6 @@ import tensorflow as tf
 
 sys.path.append('..')
 from util.saver import Saver
-from util.utils import smooth
 
 initializer_helper = {
     'kernel_initializer': tf.random_normal_initializer(0, .1),
@@ -128,8 +127,6 @@ class PPO_Base(object):
         self.update_variables_op = [tf.assign(r, v) for r, v in
                                     zip(old_policy_v_variables, policy_v_variables)]
 
-        self.variables_cachable = [v for v in tf.global_variables() if v != self.lr]
-
         tf.summary.scalar('loss/value_function', L_vf)
         tf.summary.scalar('loss/-entropy', S)
         tf.summary.scalar('loss/lr', self.lr)
@@ -181,9 +178,6 @@ class PPO_Base(object):
 
         if np.isnan(np.min(a)):
             print('WARNING! NAN IN ACTIONS')
-            a = self.sess.run(self.choose_action_op, {
-                self.pl_s: s
-            })
 
         return np.clip(a, -self.a_bound, self.a_bound)
 
@@ -216,6 +210,9 @@ class PPO_Base(object):
         assert len(discounted_r.shape) == 2
         assert s.shape[0] == a.shape[0] == adv.shape[0] == discounted_r.shape[0]
 
+        global_iter = iteration + self.init_iteration
+        self.global_iter.load(global_iter, self.sess)
+
         td_error = np.square(self.get_v(s) - discounted_r)
         bool_mask = np.all(td_error > self.sess.run(self.td_threshold), axis=1)
         if not np.all(bool_mask == False):
@@ -224,7 +221,7 @@ class PPO_Base(object):
         self.sess.run(self.update_variables_op)  # TODO
 
         if iteration % self.save_per_iter == 0:
-            self.saver.save(iteration + self.init_iteration)
+            self.saver.save(global_iter)
 
         if self.summary_writer is not None:
             summaries = self.sess.run(self.summaries, {
@@ -233,9 +230,7 @@ class PPO_Base(object):
                 self.pl_advantage: adv,
                 self.pl_discounted_r: discounted_r
             })
-            self.summary_writer.add_summary(summaries, iteration + self.init_iteration)
-
-        self.sess.run(self.global_iter.assign(iteration + self.init_iteration))
+            self.summary_writer.add_summary(summaries, global_iter)
 
         for i in range(0, s.shape[0], self.batch_size):
             _s, _a, _adv, _discounted_r = (s[i:i + self.batch_size],
