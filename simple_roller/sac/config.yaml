@@ -1,8 +1,0 @@
-build_path: 
-  win32: C:\Users\Fisher\Documents\Unity\build-simple-roller\rl-test.exe
-  linux: /data/linux-simple-roller/rl-test.x86_64
-write_summary_graph: true
-
-use_priority: False
-batch_size: 256
-max_replay_buffer_size: 10000000

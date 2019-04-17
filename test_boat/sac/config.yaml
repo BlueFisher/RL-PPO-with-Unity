@@ -1,0 +1,9 @@
+build_path: 
+  win32: C:\Users\Fisher\Documents\Unity\build-test-boat-small\boat.exe
+  linux: /data/linux-test-boat/boat.x86_64
+write_summary_graph: true
+
+max_iter: 10000
+use_priority: False
+batch_size: 256
+max_replay_buffer_size: 10000000

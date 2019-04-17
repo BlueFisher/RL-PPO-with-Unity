@@ -7,7 +7,7 @@ import tensorflow as tf
 
 from replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
 
-sys.path.append('../..')
+sys.path.append('..')
 from util.saver import Saver
 
 initializer_helper = {

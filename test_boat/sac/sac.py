@@ -1,6 +1,7 @@
 import sys
 import tensorflow as tf
 
+sys.path.append('../../sac')
 from sac_base import SAC_Base
 
 initializer_helper = {
