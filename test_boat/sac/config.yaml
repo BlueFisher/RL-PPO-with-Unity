@@ -1,6 +1,6 @@
 build_path: 
-  win32: C:\Users\Fisher\Documents\Unity\build-test-boat-small\boat.exe
-  linux: /data/linux-test-boat/boat.x86_64
+  win32: C:\Users\Fisher\Documents\Unity\build-test-boat\boat.exe
+  linux: /data/zzy/linux-test-boat/boat.x86_64
 write_summary_graph: true
 
 max_iter: 10000

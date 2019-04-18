@@ -30,10 +30,8 @@ class SAC_Base(object):
                  tau=0.005,
                  write_summary_per_step=20,
                  update_target_per_step=1,
-                 init_lr=3e-4,
-                 min_lr=0,
-                 decay_steps=50,
-                 decay_rate=1.,
+                 init_log_alpha=-4.6,
+                 lr=3e-4,
                  use_priority=False,
                  batch_size=256,
                  max_replay_buffer_size=25600):
@@ -59,8 +57,7 @@ class SAC_Base(object):
             if seed is not None:
                 tf.random.set_random_seed(seed)
 
-            self._build_model(gamma, tau,
-                              init_lr, min_lr, decay_steps, decay_rate)
+            self._build_model(gamma, tau, lr, init_log_alpha)
 
             self.saver = Saver(saver_model_path, self.sess)
             self.init_iteration = self.saver.restore_or_init()
@@ -77,8 +74,7 @@ class SAC_Base(object):
                     writer.close()
                 self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
 
-    def _build_model(self, gamma, tau,
-                     init_lr, min_lr, decay_steps, decay_rate):
+    def _build_model(self, gamma, tau, lr, init_log_alpha):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         self.pl_a = tf.placeholder(tf.float32, shape=(None, self.a_dim), name='action')
         self.pl_r = tf.placeholder(tf.float32, shape=(None, 1), name='reward')
@@ -87,7 +83,7 @@ class SAC_Base(object):
 
         self.pl_is = tf.placeholder(tf.float32, shape=(None, 1), name='importance_ratio')
 
-        log_alpha = tf.get_variable('alpha', shape=(), initializer=tf.constant_initializer(-4.6))
+        log_alpha = tf.get_variable('alpha', shape=(), initializer=tf.constant_initializer(init_log_alpha))
         alpha = tf.exp(log_alpha)
 
         policy, self.action_sampled, policy_variables = self._build_policy_net(self.pl_s, 'policy')
@@ -109,7 +105,6 @@ class SAC_Base(object):
         else:
             L_q1 = tf.reduce_mean(tf.squared_difference(q1, y))
             L_q2 = tf.reduce_mean(tf.squared_difference(q2, y))
-        
 
         q1_td_error = tf.abs(q1 - y)
         q2_td_error = tf.abs(q2 - y)
@@ -123,11 +118,6 @@ class SAC_Base(object):
 
         with tf.name_scope('optimizer'):
             self.global_step = tf.get_variable('global_step', shape=(), initializer=tf.constant_initializer(0), trainable=False)
-            lr = tf.math.maximum(tf.train.exponential_decay(learning_rate=init_lr,
-                                                            global_step=self.global_step,
-                                                            decay_steps=decay_steps,
-                                                            decay_rate=decay_rate,
-                                                            staircase=True), min_lr)
 
             self.train_q_ops = [tf.train.AdamOptimizer(lr).minimize(L_q1,
                                                                     var_list=q1_variables),
@@ -146,7 +136,6 @@ class SAC_Base(object):
 
         tf.summary.scalar('loss/Q1', L_q1)
         tf.summary.scalar('loss/Q2', L_q2)
-        # tf.summary.scalar('loss/lr', lr)
         tf.summary.scalar('loss/policy', L_policy)
         tf.summary.scalar('loss/entropy', tf.reduce_mean(entropy))
         tf.summary.scalar('loss/alpha', alpha)
@@ -201,7 +190,7 @@ class SAC_Base(object):
                 self.pl_r: r,
                 self.pl_s_: s_,
                 self.pl_done: done,
-                self.pl_is: np.zeros((1,1)) if not self.use_priority else importance_ratio
+                self.pl_is: np.zeros((1, 1)) if not self.use_priority else importance_ratio
             })
             self.summary_writer.add_summary(summaries, global_step)
 
@@ -212,7 +201,7 @@ class SAC_Base(object):
                 self.pl_r: r,
                 self.pl_s_: s_,
                 self.pl_done: done,
-                self.pl_is: np.zeros((1,1)) if not self.use_priority else importance_ratio
+                self.pl_is: np.zeros((1, 1)) if not self.use_priority else importance_ratio
             })
 
             self.sess.run([self.train_policy_op, self.train_alpha_op], {
