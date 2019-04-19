@@ -1,165 +1,221 @@
 import collections
 import random
 import math
+import time
 import numpy as np
 
 
 class ReplayBuffer(object):
-    def __init__(self, batch_size, max_size):
+    _data_pointer = 0
+    _size = 0
+
+    def __init__(self, batch_size, capacity):
         self.batch_size = batch_size
-        self.max_size = max_size
+        self.capacity = capacity
 
-        self._buffer = collections.deque(maxlen=max_size)
+        self._buffer = np.empty(capacity, dtype=object)
 
-    def add_sample(self, *args):
+    def add(self, *args):
         for arg in args:
             assert len(arg.shape) == 2
             assert len(arg) == len(args[0])
 
         for i in range(len(args[0])):
-            self._buffer.append([arg[i] for arg in args])
+            self._buffer[self._data_pointer] = tuple(arg[i] for arg in args)
+            self._data_pointer += 1
 
-    def random_batch(self):
-        n_sample = self.batch_size if len(self._buffer) >= self.batch_size else len(self._buffer)
-        t = random.sample(self._buffer, k=n_sample)
+            if self._data_pointer >= self.capacity:  # replace when exceed the capacity
+                self._data_pointer = 0
+
+            if self._size < self.capacity:
+                self._size += 1
+
+    def sample(self):
+        n_sample = self.batch_size if self.is_lg_batch_size else self._size
+        t = np.random.choice(self._buffer[:self._size], size=n_sample, replace=False)
         return [np.array(e) for e in zip(*t)]
-
-    def clear(self):
-        self._buffer.clear()
 
     @property
     def is_full(self):
-        return len(self._buffer) == self.max_size
+        return self._size == self.capacity
 
     @property
     def size(self):
-        return len(self._buffer)
+        return self._size
 
     @property
     def is_lg_batch_size(self):
-        return len(self._buffer) > self.batch_size
+        return self._size > self.batch_size
 
 
-class PrioritizedReplayBuffer(object):
-    def __init__(self, batch_size, max_size, beta=0.9):
+class SumTree(object):
+    """
+    This SumTree code is a modified version and the original code is from:
+    https://github.com/jaara/AI-blog/blob/master/SumTree.py
+    Story data with its priority in the tree.
+    """
+    _data_pointer = 0
+    _size = 0
+
+    def __init__(self, capacity):
+        self.capacity = capacity  # for all priority values
+        self._tree = np.zeros(2 * capacity - 1)
+        # [--------------Parent nodes-------------][-------leaves to recode priority-------]
+        #             size: capacity - 1                       size: capacity
+        self._data = np.zeros(capacity, dtype=object)  # for all transitions
+        # [--------------data frame-------------]
+        #             size: capacity
+
+    def add(self, p, data):
+        tree_idx = self._data_pointer + self.capacity - 1
+        self._data[self._data_pointer] = data  # update data_frame
+        self.update(tree_idx, p)  # update tree_frame
+
+        self._data_pointer += 1
+        if self._data_pointer >= self.capacity:  # replace when exceed the capacity
+            self._data_pointer = 0
+
+        if self._size < self.capacity:
+            self._size += 1
+
+    def update(self, tree_idx, p):
+        change = p - self._tree[tree_idx]
+        self._tree[tree_idx] = p
+        # then propagate the change through tree
+        while tree_idx != 0:    # this method is faster than the recursive loop in the reference code
+            tree_idx = (tree_idx - 1) // 2
+            self._tree[tree_idx] += change
+
+    def get_leaf(self, v):
+        """
+        Tree structure and array storage:
+        Tree index:
+             0         -> storing priority sum
+            / \
+          1     2
+         / \   / \
+        3   4 5   6    -> storing priority for transitions
+        Array type for storing:
+        [0,1,2,3,4,5,6]
+        """
+        parent_idx = 0
+        while True:     # the while loop is faster than the method in the reference code
+            cl_idx = 2 * parent_idx + 1         # this leaf's left and right kids
+            cr_idx = cl_idx + 1
+            if cl_idx >= len(self._tree):        # reach bottom, end search
+                leaf_idx = parent_idx
+                break
+            else:       # downward search, always search for a higher priority node
+                if v <= self._tree[cl_idx]:
+                    parent_idx = cl_idx
+                else:
+                    v -= self._tree[cl_idx]
+                    parent_idx = cr_idx
+
+        data_idx = leaf_idx - self.capacity + 1
+        return leaf_idx, self._tree[leaf_idx], self._data[data_idx]
+
+    @property
+    def total_p(self):
+        return self._tree[0]  # the root
+
+    @property
+    def max(self):
+        if self._size == 0:
+            return 0
+        return np.max(self._tree[self.capacity - 1:self._size + self.capacity - 1])
+
+    @property
+    def min(self):
+        return np.min(self._tree[self.capacity - 1:self._size + self.capacity - 1])
+
+    @property
+    def size(self):
+        return self._size
+
+
+class PrioritizedReplayBuffer(object):  # stored as ( s, a, r, s_ ) in SumTree
+    epsilon = 0.01  # small amount to avoid zero priority
+    alpha = 0.6  # [0~1] convert the importance of TD error to priority
+    beta = 0.4  # importance-sampling, from initial value increasing to 1
+    beta_increment_per_sampling = 0.001
+    abs_err_upper = 1.  # clipped abs error
+
+    def __init__(self, batch_size, capacity):
         self.batch_size = batch_size
-        self.max_size = 2**math.floor(math.log2(max_size))
-        self.beta = beta
+        capacity = 2**math.floor(math.log2(capacity))
+        self._tree = SumTree(capacity)
 
-        self._sum_tree = SumTree(self.max_size)
-
-    def add_sample(self, *args):
-        for arg in args:
-            assert len(arg.shape) == 2
-            assert len(arg) == len(args[0])
-
-        max_weight = self._sum_tree.get_max()
+    def add(self, *args):
+        max_p = self._tree.max
+        if max_p == 0:
+            max_p = self.abs_err_upper
 
         for i in range(len(args[0])):
-            self._sum_tree.add([arg[i] for arg in args], max_weight + 1)
+            self._tree.add(max_p, tuple(arg[i] for arg in args))
 
-    def random_batch(self):
-        n_sample = self.batch_size if self._sum_tree.size >= self.batch_size else self._sum_tree.size
-        total = self._sum_tree.get_total()
+    def sample(self):
+        n_sample = self.batch_size if self.is_lg_batch_size else self.size
 
-        step = total // n_sample
-        points_transitions_probs = []
+        b_idx, b_memory, ISWeights = np.empty((n_sample,), dtype=np.int32), np.empty((n_sample,), dtype=object), np.empty((n_sample, 1))
+        pri_seg = self._tree.total_p / n_sample       # priority segment
+        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])  # max = 1
+
+        min_prob = self._tree.min / self._tree.total_p     # for later calculate ISweight
+
         for i in range(n_sample):
-            v = np.random.uniform(i * step, (i + 1) * step - 1)
-            t = self._sum_tree.sample(v)
-            points_transitions_probs.append(t)
+            a, b = pri_seg * i, pri_seg * (i + 1)
+            v = np.random.uniform(a, b)
+            idx, p, data = self._tree.get_leaf(v)
+            prob = p / self._tree.total_p
+            ISWeights[i, 0] = np.power(prob / min_prob, -self.beta)
+            b_idx[i], b_memory[i] = idx, data
+        return b_idx, tuple(np.array(e) for e in zip(*b_memory)), ISWeights
 
-        points, transitions, probs = zip(*points_transitions_probs)
+    def update(self, tree_idx, abs_errors):
+        abs_errors += self.epsilon  # convert to abs and avoid 0
+        clipped_errors = np.minimum(abs_errors, self.abs_err_upper)
 
-        # 计算重要性比率
-        importance_ratio = np.array([np.power(self.size * probs[i], -self.beta) for i in range(len(probs))])
-        importance_ratio /= importance_ratio.max()
-
-        importance_ratio = np.array(importance_ratio)[:, np.newaxis]
-
-        return points, tuple(np.array(e) for e in zip(*transitions)), importance_ratio
-
-    def update(self, points, td_error):
-        for i in range(len(points)):
-            self._sum_tree.update(points[i], td_error[i])
+        ps = np.power(clipped_errors, self.alpha)
+        for ti, p in zip(tree_idx, ps):
+            self._tree.update(ti, p)
 
     @property
     def size(self):
-        return self._sum_tree.size
+        return self._tree.size
 
     @property
     def is_lg_batch_size(self):
-        return self._sum_tree.size > self.batch_size
-
-
-class SumTree:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.tree = [0] * (2 * capacity - 1)
-
-        self.data = [None] * capacity
-        self.size = 0
-        self.curr_point = 0
-
-    # 添加一个节点数据
-    def add(self, data, weight):
-        self.data[self.curr_point] = data
-
-        self.update(self.curr_point, weight)
-
-        self.curr_point += 1
-        if self.curr_point >= self.capacity:
-            self.curr_point = 0
-
-        if self.size < self.capacity:
-            self.size += 1
-
-    # 更新一个节点的优先级权重
-    def update(self, point, weight):
-        idx = point + self.capacity - 1
-        weight += .01
-        change = weight - self.tree[idx]
-
-        self.tree[idx] = weight
-
-        parent = (idx - 1) // 2
-        while parent >= 0:
-            self.tree[parent] += change
-            parent = (parent - 1) // 2
-
-    def get_total(self):
-        return self.tree[0]
-
-    def get_max(self):
-        if self.size == 0:
-            return 0
-        else:
-            return max(self.tree[self.capacity - 1:self.capacity + self.size - 1])
-
-    # 根据一个权重进行抽样
-    def sample(self, v):
-        idx = 0
-        while idx < self.capacity - 1:
-            l_idx = idx * 2 + 1
-            r_idx = l_idx + 1
-            if self.tree[l_idx] >= v:
-                idx = l_idx
-            else:
-                idx = r_idx
-                v = v - self.tree[l_idx]
-
-        point = idx - (self.capacity - 1)
-        # 返回抽样得到的 位置，transition信息，该样本的概率
-        return point, self.data[point], self.tree[idx] / self.get_total()
+        return self.size > self.batch_size
 
 
 if __name__ == "__main__":
-    replay_buffer = PrioritizedReplayBuffer(4, 8)
+    # replay_buffer = ReplayBuffer(256, 1000000)
+    # for i in range(1000000):
+    #     start = time.time()
+    #     replay_buffer.add(np.random.randn(9, 1), np.random.randn(9, 2))
+    #     print('add', time.time() - start)
+    #     print(replay_buffer.size)
 
-    replay_buffer.add_sample(np.array([[1], [2], [3]]))
-    points, data, importance_ratio = replay_buffer.random_batch()
-    print(points, data, importance_ratio)
-    replay_buffer.update(points,[1,2,3])
-    print(replay_buffer._sum_tree.tree)
-    points, data, importance_ratio = replay_buffer.random_batch()
-    print(points, data, importance_ratio)
+    #     start = time.time()
+    #     data = replay_buffer.sample()
+    #     print('sample', time.time() - start)
+
+    #     print('=' * 10)
+
+    replay_buffer = PrioritizedReplayBuffer(2, 9)
+    for i in range(9):
+        start = time.time()
+        replay_buffer.add(np.random.randn(9, 1), np.random.randn(9, 2))
+        print('add', time.time() - start)
+        print(replay_buffer.size)
+
+        start = time.time()
+        points, (a, b), ratio = replay_buffer.sample()
+        print('sample', time.time() - start)
+
+        start = time.time()
+        replay_buffer.update(points, np.abs(np.random.randn(256)))
+        print('update', time.time() - start)
+
+        print('=' * 10)

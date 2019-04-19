@@ -3,7 +3,8 @@ build_path:
   linux: /data/zzy/linux-test-boat/boat.x86_64
 write_summary_graph: true
 
-max_iter: 10000
-use_priority: False
+max_iter: 1000
+use_auto_alpha: True
+use_priority: True
 batch_size: 256
-max_replay_buffer_size: 10000000
+replay_buffer_capacity: 1000000

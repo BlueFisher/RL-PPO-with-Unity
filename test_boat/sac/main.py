@@ -102,7 +102,8 @@ sac = SAC(state_dim=state_dim,
           **agent_config)
 
 reset_config = {
-    'copy': config['agents_num']
+    'copy': config['agents_num'],
+    'reward': 1
 }
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]
@@ -168,7 +169,7 @@ for iteration in range(config['max_iter'] + 1):
         sac.save_model(iteration)
 
     print(f'iter {iteration}, rewards {", ".join([f"{i:.1f}" for i in sorted(all_cumulative_rewards)])}, hitted {hitted}')
-    print(f'interaction {sum(interaction_times):.2f}, training {sum(training_times):.2f}')
-
+    print(f'interaction {sum(interaction_times):.2f}, training {sum(training_times):.2f}, buffer {sac.replay_buffer.size}, steps {len(training_times)}')
+    print('=' * 10)
 
 env.close()

@@ -31,20 +31,22 @@ class SAC_Base(object):
                  write_summary_per_step=20,
                  update_target_per_step=1,
                  init_log_alpha=-4.6,
+                 use_auto_alpha=True,
                  lr=3e-4,
                  use_priority=False,
                  batch_size=256,
-                 max_replay_buffer_size=25600):
+                 replay_buffer_capacity=25600):
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
         self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options),
                                graph=self.graph)
 
+        self.use_auto_alpha = use_auto_alpha
         self.use_priority = use_priority
         if self.use_priority:
-            self.replay_buffer = PrioritizedReplayBuffer(batch_size, max_replay_buffer_size)
+            self.replay_buffer = PrioritizedReplayBuffer(batch_size, replay_buffer_capacity)
         else:
-            self.replay_buffer = ReplayBuffer(batch_size, max_replay_buffer_size)
+            self.replay_buffer = ReplayBuffer(batch_size, replay_buffer_capacity)
 
         self.s_dim = state_dim
         self.a_dim = action_dim
@@ -114,7 +116,7 @@ class SAC_Base(object):
         L_policy = tf.reduce_mean(alpha * policy.log_prob(self.action_sampled) - q1_for_gradient)
 
         entropy = policy.entropy()
-        L_alpha = -log_alpha * policy.log_prob(self.action_sampled) + log_alpha * 2
+        L_alpha = -log_alpha * policy.log_prob(self.action_sampled) + log_alpha * self.a_dim
 
         with tf.name_scope('optimizer'):
             self.global_step = tf.get_variable('global_step', shape=(), initializer=tf.constant_initializer(0), trainable=False)
@@ -173,12 +175,12 @@ class SAC_Base(object):
 
         global_step = self.sess.run(self.global_step)
 
-        self.replay_buffer.add_sample(s, a, r, s_, done)
+        self.replay_buffer.add(s, a, r, s_, done)
 
         if self.use_priority:
-            points, (s, a, r, s_, done), importance_ratio = self.replay_buffer.random_batch()
+            points, (s, a, r, s_, done), importance_ratio = self.replay_buffer.sample()
         else:
-            s, a, r, s_, done = self.replay_buffer.random_batch()
+            s, a, r, s_, done = self.replay_buffer.sample()
 
         if global_step % self.update_target_per_step == 0:
             self.sess.run(self.update_target_op)
@@ -204,9 +206,14 @@ class SAC_Base(object):
                 self.pl_is: np.zeros((1, 1)) if not self.use_priority else importance_ratio
             })
 
-            self.sess.run([self.train_policy_op, self.train_alpha_op], {
+            self.sess.run(self.train_policy_op, {
                 self.pl_s: s,
             })
+
+            if self.use_auto_alpha:
+                self.sess.run(self.train_alpha_op, {
+                    self.pl_s: s,
+                })
 
             if self.use_priority:
                 td_error = self.sess.run(self.td_error, {
