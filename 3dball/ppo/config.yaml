@@ -1,5 +1,5 @@
 build_path: 
-  win32: C:\Users\Fisher\Documents\Unity\build-3dball\rl-test.exe
+  win32: C:\Users\Fisher\Documents\Unity\build-3dball\RL-Envs.exe
   linux: /data/linux-3dball/rl-test.x86_64
 write_summary_graph: true
 seed_increment: 200

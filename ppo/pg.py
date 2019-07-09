@@ -57,7 +57,7 @@ class PG(PPO_Base):
             sigma = tf.layers.dense(l, 32, tf.nn.relu, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, **initializer_helper)
 
-            mu, sigma = mu * self.a_bound, sigma * self.variance_bound
+            mu, sigma = mu, sigma * self.variance_bound
 
             policy = tf.distributions.Normal(loc=mu, scale=sigma)
 

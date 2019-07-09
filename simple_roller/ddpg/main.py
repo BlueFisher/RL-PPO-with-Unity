@@ -28,7 +28,6 @@ default_brain_name = env.brain_names[0]
 brain_params = env.brains[default_brain_name]
 state_dim = brain_params.vector_observation_space_size
 action_dim = brain_params.vector_action_space_size[0]
-action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 
 variance = 2.
@@ -38,7 +37,6 @@ with tf.Session() as sess:
         actor = Actor(sess,
                       state_dim,
                       action_dim,
-                      action_bound,
                       lr=0.00005,
                       tau=0.01)
         critic = Critic(sess,

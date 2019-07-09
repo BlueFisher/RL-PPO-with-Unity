@@ -1,0 +1,20 @@
+build_path: 
+  win32: C:\Users\Fisher\Documents\Unity\build-simple-boat\RL-Envs.exe
+  linux: /data/zzy/linux-simple-boat/RL-Envs.exe
+write_summary_graph: true
+seed_increment: 100
+
+decay_rate: 0.9
+decay_steps: 100
+max_iter: 5000
+lambda: 0.99
+beta: 0.002
+
+critic:
+  init_td_threshold: 0.01
+  td_threshold_decay_steps: 100
+  decay_rate: 0.9
+  decay_steps: 100
+
+addition_objective: true
+epsilon: 0.02

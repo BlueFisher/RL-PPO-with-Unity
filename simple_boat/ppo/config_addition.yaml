@@ -10,3 +10,6 @@ max_iter: 10000
 lambda: 0.99
 
 beta: 0.002
+
+addition_objective: true
+epsilon: 0.05

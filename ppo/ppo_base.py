@@ -18,7 +18,6 @@ class PPO_Base(object):
     def __init__(self,
                  state_dim,
                  action_dim,
-                 action_bound,
                  saver_model_path='model',
                  save_per_iter=1000,
                  summary_path='log',
@@ -47,7 +46,6 @@ class PPO_Base(object):
 
         self.s_dim = state_dim
         self.a_dim = action_dim
-        self.a_bound = action_bound
         self.variance_bound = variance_bound
         self.batch_size = batch_size
         self.epoch_size = epoch_size
@@ -163,23 +161,10 @@ class PPO_Base(object):
             self.pl_s: s
         })
 
-        # row, col = a.shape
-        # for i in range(col):
-        #     action = a[:, i]
-        #     bound = self.a_bound[i]
-        #     width = bound * 2
-        #     for j in range(row):
-        #         if bound < action[j] < bound + width:
-        #             a[j, i] = width - action[j]
-        #         elif -bound - width < action[j] < -bound:
-        #             a[j, i] = -width - action[j]
-        #         elif action[j] <= -bound - width or action[j] >= bound + width:
-        #             a[j, i] = np.random.rand(1) * width - bound
-
         if np.isnan(np.min(a)):
             print('WARNING! NAN IN ACTIONS')
 
-        return np.clip(a, -self.a_bound, self.a_bound)
+        return np.clip(a, -1, 1)
 
     def get_policy(self, s):
         assert len(s.shape) == 2

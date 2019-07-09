@@ -12,13 +12,11 @@ class Actor(object):
                  sess,
                  state_dim,
                  action_dim,
-                 action_bound,
                  lr,
                  tau):
         self.sess = sess
         self.s_dim = state_dim
         self.a_dim = action_dim
-        self.a_bound = action_bound
         self.lr = lr
 
         with tf.variable_scope('actor'):
@@ -53,7 +51,6 @@ class Actor(object):
                 l, self.a_dim, activation=tf.nn.tanh,
                 trainable=trainable, **initializer_helper
             )
-            a = a * self.a_bound
 
             params = tf.get_variable_scope().global_variables()
 
@@ -69,7 +66,7 @@ class Actor(object):
 
         action = a[0]
         if variance is not None:
-            action = np.clip(np.random.normal(action, variance), -self.a_bound, self.a_bound)  # exploration
+            action = np.clip(np.random.normal(action, variance), -1 ,1)  # exploration
 
         return action
 

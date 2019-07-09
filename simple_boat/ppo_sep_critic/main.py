@@ -302,7 +302,9 @@ critic = Critic(state_dim=state_dim,
                 **critic_config)
 
 reset_config = {
-    'copy': config['agents_num_p_policy'] * config['policies_num']
+    'copy': config['agents_num_p_policy'] * config['policies_num'],
+    'action': 0,
+    'reward': 1
 }
 
 brain_info = env.reset(train_mode=TRAIN_MODE, config=reset_config)[default_brain_name]

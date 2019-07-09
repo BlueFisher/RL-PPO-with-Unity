@@ -262,7 +262,6 @@ default_brain_name = env.brain_names[0]
 brain_params = env.brains[default_brain_name]
 state_dim = brain_params.vector_observation_space_size
 action_dim = brain_params.vector_action_space_size[0]
-action_bound = np.array([float(i) for i in brain_params.vector_action_descriptions])
 
 
 ppos = []
@@ -289,7 +288,6 @@ for i in range(config['policies_num']):
     print('=' * 10, name, '=' * 10)
     ppos.append(PPO(state_dim=state_dim,
                     action_dim=action_dim,
-                    action_bound=action_bound,
                     saver_model_path=f'model/{name}',
                     summary_path='log' if TRAIN_MODE else None,
                     summary_name=name,
