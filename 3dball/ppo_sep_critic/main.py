@@ -19,6 +19,7 @@ TRAIN_MODE = True
 config = {
     'name': NOW,
     'build_path': None,
+    'scene': None,
     'port': 7000,
     'lambda': 1,
     'gamma': 0.99,
@@ -254,7 +255,8 @@ if config['build_path'] is None or config['build_path'] == '':
 else:
     env = UnityEnvironment(file_name=config['build_path'],
                            no_graphics=TRAIN_MODE,
-                           base_port=config['port'])
+                           base_port=config['port'],
+                           args=['--scene', config['scene']])
 
 # single brain
 default_brain_name = env.brain_names[0]
