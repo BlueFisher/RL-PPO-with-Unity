@@ -1,8 +1,0 @@
-build_path: 
-  win32: C:\Users\Fisher\Documents\Unity\build-obstacle-roller\rl-test.exe
-  linux: /data/linux-obstacle-roller/rl-test.x86_64
-write_summary_graph: true
-seed_increment: 100
-max_iter: 10000
-decay_steps: 200
-decay_rate: 0.9

@@ -1,11 +1,17 @@
-import sys
+import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
 
-sys.path.append('../..')
-from ppo.ppo_sep_critic_base import PPO_Base, Critic_Base, initializer_helper
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+initializer_helper = {
+    'kernel_initializer': tf.truncated_normal_initializer(0, .1),
+    'bias_initializer': tf.constant_initializer(.1)
+}
 
 
-class Critic(Critic_Base):
+class Critic_Custom(object):
     def _build_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope):
             l = tf.layers.dense(self.pl_s, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -17,7 +23,7 @@ class Critic(Critic_Base):
         return v
 
 
-class PPO(PPO_Base):
+class PPO_Custom(object):
     def _build_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
             l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -30,7 +36,7 @@ class PPO(PPO_Base):
             sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu, sigma * self.variance_bound + .1
+            mu, sigma = mu, sigma + .1
 
             policy = tf.distributions.Normal(loc=mu, scale=sigma)
 

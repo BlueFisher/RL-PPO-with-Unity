@@ -1,43 +1,38 @@
 import time
-import collections
 import sys
 
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('..')
-from util.saver import Saver
-
-initializer_helper = {
-    'kernel_initializer': tf.random_normal_initializer(0, .1),
-    'bias_initializer': tf.constant_initializer(.1)
-}
+from .saver import Saver
 
 
 class PPO_Base(object):
     def __init__(self,
                  state_dim,
                  action_dim,
-                 saver_model_path='model',
+                 model_root_path,
+
                  save_per_iter=1000,
-                 summary_path='log',
-                 summary_name=None,
                  write_summary_graph=False,
                  seed=None,
+                 std=True,
+                 addition_objective=False,
+
+                 batch_size=2048,
+                 epoch_size=10,  # train K epochs
+
                  init_td_threshold=0.0,
                  td_threshold_decay_steps=100,
                  td_threshold_rate=0.5,
-                 batch_size=2048,
-                 variance_bound=1.,
-                 addition_objective=False,
+
                  beta=0.001,  # entropy coefficient
                  epsilon=0.2,  # clip bound
-                 combine_ratio=1,
+
                  init_lr=5e-5,
                  min_lr=1e-5,
                  decay_steps=50,
-                 decay_rate=0.9,
-                 epoch_size=10):  # train K epochs
+                 decay_rate=0.9):
 
         self.graph = tf.Graph()
         gpu_options = tf.GPUOptions(allow_growth=True)
@@ -46,32 +41,32 @@ class PPO_Base(object):
 
         self.s_dim = state_dim
         self.a_dim = action_dim
-        self.variance_bound = variance_bound
+        self.save_per_iter = save_per_iter
         self.batch_size = batch_size
         self.epoch_size = epoch_size
-        self.save_per_iter = save_per_iter
+        
 
         with self.graph.as_default():
             if seed is not None:
                 tf.random.set_random_seed(seed)
-            self._build_model(addition_objective, combine_ratio, beta, epsilon,
+
+            self._build_model(std, addition_objective,
                               init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                              beta, epsilon,
                               init_lr, min_lr, decay_steps, decay_rate)
-            self.saver = Saver(saver_model_path, self.sess)
+
+            self.saver = Saver(f'{model_root_path}/model', self.sess)
             self.init_iteration = self.saver.restore_or_init()
 
-            self.summary_writer = None
-            if summary_path is not None:
-                if summary_name is None:
-                    summary_name = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
+            summary_path = f'{model_root_path}/log'
+            if write_summary_graph:
+                writer = tf.summary.FileWriter(summary_path, self.graph)
+                writer.close()
+            self.summary_writer = tf.summary.FileWriter(summary_path)
 
-                if write_summary_graph:
-                    writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}', self.graph)
-                    writer.close()
-                self.summary_writer = tf.summary.FileWriter(f'{summary_path}/{summary_name}')
-
-    def _build_model(self, addition_objective, combine_ratio, beta, epsilon,
+    def _build_model(self, std, addition_objective,
                      init_td_threshold, td_threshold_decay_steps, td_threshold_rate,
+                     beta, epsilon,
                      init_lr, min_lr, decay_steps, decay_rate):
         self.pl_s = tf.placeholder(tf.float32, shape=(None, self.s_dim), name='state')
         self.policy, self.v, policy_v_variables = self._build_net(self.pl_s, 'actor_critic', True)
@@ -114,8 +109,8 @@ class PPO_Base(object):
                                                            decay_steps=td_threshold_decay_steps,
                                                            decay_rate=td_threshold_rate,
                                                            staircase=True)
-            if combine_ratio > 0:
-                L = L_clip - combine_ratio * L_vf + beta * S
+            if std:
+                L = L_clip - L_vf + beta * S
                 self.train_op = tf.train.AdamOptimizer(self.lr).minimize(-L)
             else:
                 L = L_clip + beta * S
@@ -160,9 +155,6 @@ class PPO_Base(object):
         a = self.sess.run(self.choose_action_op, {
             self.pl_s: s
         })
-
-        if np.isnan(np.min(a)):
-            print('WARNING! NAN IN ACTIONS')
 
         return np.clip(a, -1, 1)
 

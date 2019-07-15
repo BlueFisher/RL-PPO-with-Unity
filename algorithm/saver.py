@@ -9,12 +9,9 @@ class Saver(object):
         self.sess = sess
 
         # create model path if not exists
-        dir_path = '/'.join(model_path.split('/')[:-1])
-        if dir_path == '':
-            dir_path = model_path
-        is_exists = os.path.exists(dir_path)
+        is_exists = os.path.exists(model_path)
         if not is_exists:
-            os.makedirs(dir_path)
+            os.makedirs(model_path)
 
         if var_list is None:
             self.saver = tf.train.Saver(max_to_keep=10)
@@ -47,8 +44,7 @@ class Saver(object):
         tf.train.write_graph(sess.graph_def, self.model_path, model_name, as_text=False)
 
     def save(self, step=None):
-        assert type(step) == int
         if step is None:
             self.saver.save(self.sess, f'{self.model_path}/model.ckpt')
         else:
-            self.saver.save(self.sess, f'{self.model_path}/model-{step}.ckpt')
+            self.saver.save(self.sess, f'{self.model_path}/model-{int(step)}.ckpt')

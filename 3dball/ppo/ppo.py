@@ -1,11 +1,17 @@
-import sys
+import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
 
-sys.path.append('../..')
-from ppo.ppo_base import PPO_Base, initializer_helper
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+initializer_helper = {
+    'kernel_initializer': tf.truncated_normal_initializer(0, .1),
+    'bias_initializer': tf.constant_initializer(.1)
+}
 
 
-class PPO_SEP(PPO_Base):
+class PPO_Sep_Custom(object):
     def _build_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
             policy, policy_variables = self._build_actor_net(s_inputs, 'actor', trainable)
@@ -37,7 +43,7 @@ class PPO_SEP(PPO_Base):
             sigma = tf.layers.dense(l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
 
-            mu, sigma = mu, sigma * self.variance_bound + .1
+            mu, sigma = mu, sigma + .1
 
             policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
@@ -46,7 +52,7 @@ class PPO_SEP(PPO_Base):
         return policy, variables
 
 
-class PPO_STD(PPO_Base):
+class PPO_Std_Custom(object):
     def _build_net(self, s_inputs, scope, trainable, reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
             l = tf.layers.dense(s_inputs, 512, tf.nn.relu, trainable=trainable, **initializer_helper)
@@ -58,7 +64,7 @@ class PPO_STD(PPO_Base):
             mu = tf.layers.dense(mu, self.a_dim, tf.nn.tanh, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(prob_l, 32, tf.nn.relu, trainable=trainable, **initializer_helper)
             sigma = tf.layers.dense(sigma, self.a_dim, tf.nn.sigmoid, trainable=trainable, **initializer_helper)
-            mu, sigma = mu, sigma * self.variance_bound + .1
+            mu, sigma = mu, sigma + .1
 
             policy = tf.distributions.Normal(loc=mu, scale=sigma)
 
